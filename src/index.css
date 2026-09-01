@@ -1,0 +1,163 @@
+/* ==========================================================================
+   CALIBRATION GRAPHER THEME STYLING
+   Rules:
+   - Background: Pure White (#ffffff)
+   - Overlay containers: Grey (#f1f5f9 / #e2e8f0 / #f8fafc)
+   - Borders: Rounded Black (2px solid #000000; border-radius: 10px / 12px)
+   - Titles: Orange font (#ea580c / #f97316)
+   - Subtitles: Teal font (#0d9488 / #14b8a6)
+   ========================================================================== */
+
+:root {
+  --bg-primary: #ffffff;
+  --bg-overlay: #f3f4f6;
+  --bg-overlay-card: #f8fafc;
+  --bg-overlay-hover: #e2e8f0;
+  --border-black: #000000;
+  --title-orange: #ea580c;
+  --title-orange-dark: #c2410c;
+  --subtitle-teal: #0d9488;
+  --subtitle-teal-dark: #0f766e;
+  --text-dark: #0f172a;
+  --text-muted: #475569;
+  --smt-blue: #2563eb;
+  --blazor-purple: #9333ea;
+  --diff-red: #dc2626;
+  --diff-green: #16a34a;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  background-color: var(--bg-primary);
+  color: var(--text-dark);
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Custom Scrollbars */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: #f1f5f9;
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb {
+  background: #94a3b8;
+  border-radius: 4px;
+  border: 1px solid #000000;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #64748b;
+}
+
+/* Standard Components */
+.cg-container {
+  background-color: var(--bg-overlay);
+  border: 2px solid var(--border-black);
+  border-radius: 12px;
+  box-shadow: 3px 3px 0px rgba(0, 0, 0, 0.9);
+}
+
+.cg-card {
+  background-color: var(--bg-overlay-card);
+  border: 2px solid var(--border-black);
+  border-radius: 10px;
+  box-shadow: 2px 2px 0px rgba(0, 0, 0, 0.85);
+}
+
+.cg-title {
+  color: var(--title-orange);
+  font-weight: 800;
+  letter-spacing: -0.02em;
+}
+
+.cg-subtitle {
+  color: var(--subtitle-teal);
+  font-weight: 600;
+}
+
+.cg-btn {
+  background-color: #ffffff;
+  color: var(--text-dark);
+  border: 2px solid var(--border-black);
+  border-radius: 8px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease-in-out;
+  box-shadow: 2px 2px 0px rgba(0, 0, 0, 0.85);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.cg-btn:hover {
+  background-color: var(--bg-overlay-hover);
+  transform: translate(-1px, -1px);
+  box-shadow: 3px 3px 0px rgba(0, 0, 0, 0.9);
+}
+
+.cg-btn:active {
+  transform: translate(1px, 1px);
+  box-shadow: 1px 1px 0px rgba(0, 0, 0, 0.9);
+}
+
+.cg-btn-primary {
+  background-color: var(--title-orange);
+  color: #ffffff;
+}
+.cg-btn-primary:hover {
+  background-color: var(--title-orange-dark);
+}
+
+.cg-btn-teal {
+  background-color: var(--subtitle-teal);
+  color: #ffffff;
+}
+.cg-btn-teal:hover {
+  background-color: var(--subtitle-teal-dark);
+}
+
+.cg-input, .cg-select {
+  background-color: #ffffff;
+  color: var(--text-dark);
+  border: 2px solid var(--border-black);
+  border-radius: 8px;
+  padding: 8px 12px;
+  font-size: 14px;
+  font-family: inherit;
+  box-shadow: 1px 1px 0px rgba(0,0,0,0.5);
+}
+
+.cg-input:focus, .cg-select:focus {
+  outline: none;
+  border-color: var(--title-orange);
+}
+
+/* Tooltip Custom styling */
+.tooltip-box {
+  position: absolute;
+  z-index: 9999;
+  background-color: #0f172a;
+  color: #ffffff;
+  padding: 8px 12px;
+  border-radius: 8px;
+  font-size: 12px;
+  line-height: 1.4;
+  max-width: 280px;
+  border: 1.5px solid #38bdf8;
+  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.3);
+  pointer-events: none;
+  animation: fadeIn 0.15s ease-out;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
