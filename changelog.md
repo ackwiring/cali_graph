@@ -1,0 +1,19 @@
+# Changelog — Calibration Grapher
+
+## [1.0.0] - 2026-09-01
+### Added
+- **Drag & Drop Canvas Upload**: Dual file ingestion zones for SMT Output and Blazor Composite files (CSV, TSV, TXT, Excel, JSON).
+- **Embedded PostgreSQL 16 WASM (PGlite)**: Complete in-browser database engine managing `smt_data` and `blazor_data` without requiring external database servers.
+- **Side-by-Side Diff Inspector (dfdiff)**: Synchronized data grid with cell delta highlighting, tolerance threshold filtering, and match statistics.
+- **Relational Join Builder**: Interactive join configuration (`INNER`, `LEFT`, `RIGHT`, `FULL OUTER`) with multi-key composite support and live SQL editor.
+- **7 Calibration Metric Graph Suites**:
+  1. `Sum of Crusher_Haul_Wet_Tonnes`
+  2. `Sum of Waste_Haul_Wet_Tonnes`
+  3. `Sum of Total_ExPit_Haul_Wet_Tonnes`
+  4. `Sum of ExPit_Ore_Wet_Tonnes`
+  5. `Sum of From_Stockpile_Wet_Tonnes`
+  6. `Sum of Conveyor from MIN_CMN`
+  7. `Sum of To_Stockpile_Wet_Tonnes`
+- **Visualization Modes**: Grouped Bar, Trend Line, Variance Δ Bar, and 45-degree Parity Scatter plots ($y = x$) with $R^2$ calculation.
+- **Design System Enforcement**: White background, grey overlay containers, rounded black borders (`2px solid #000`), orange titles, teal subtitles, and rich hover tooltips on every interactive element.
+- **Portable Packaging**: Single-file HTML bundle (`dist/index.html`) executable by double-click anywhere offline, plus Tauri desktop configuration.
