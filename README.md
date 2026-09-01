@@ -136,15 +136,28 @@ $$\Delta_{\text{total}} = \sum_{i=1}^N B_i - \sum_{i=1}^N S_i$$
 
 ### Percentage Difference & Dynamic Tolerance
 
-The relative percentage difference $\% \Delta_i$ is calculated relative to the SMT baseline:
+The relative percentage difference $\Delta_{\text{rel}, i}$ (in %) is calculated relative to the SMT baseline:
 
-$$\% \Delta_i = \begin{cases} \left( \dfrac{B_i - S_i}{S_i} \right) \times 100\%, & \text{if } S_i \ne 0 \\[8pt] 0\%, & \text{if } S_i = 0 \text{ and } B_i = 0 \\[8pt] +100\%, & \text{if } S_i = 0 \text{ and } B_i > 0 \end{cases}$$
+$$
+\Delta_{\text{rel}, i} = \begin{cases} 
+\left( \dfrac{B_i - S_i}{S_i} \right) \times 100 & \text{if } S_i \ne 0 \\[8pt] 
+0 & \text{if } S_i = 0 \text{ and } B_i = 0 \\[8pt] 
+100 & \text{if } S_i = 0 \text{ and } B_i > 0 
+\end{cases}
+$$
 
 For symmetrical cell-level difference evaluation in the **Diff Inspector (`dfdiff`)**, the percentage difference relative to the maximum absolute magnitude is evaluated against user-configurable tolerance $\tau$ (default: $\tau = 0.1\%$):
 
-$$\% \Delta_{\text{sym}, i} = \frac{|B_i - S_i|}{\max(|S_i|, |B_i|)} \times 100\%$$
+$$
+\Delta_{\text{sym}, i} = \frac{|B_i - S_i|}{\max(|S_i|, |B_i|)} \times 100
+$$
 
-$$\text{IsDiscrepancy}(S_i, B_i, \tau) = \begin{cases} \mathbf{TRUE}, & \text{if } \% \Delta_{\text{sym}, i} > \tau \quad \text{AND} \quad |B_i - S_i| \ge 1.0\text{ tonne} \\[6pt] \mathbf{FALSE}, & \text{otherwise} \end{cases}$$
+$$
+\text{IsDiscrepancy}(S_i, B_i, \tau) = \begin{cases} 
+\mathbf{TRUE} & \text{if } \Delta_{\text{sym}, i} > \tau \quad \text{AND} \quad |B_i - S_i| \ge 1.0\text{ tonne} \\[6pt] 
+\mathbf{FALSE} & \text{otherwise} 
+\end{cases}
+$$
 
 ---
 
