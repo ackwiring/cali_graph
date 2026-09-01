@@ -57,7 +57,7 @@ export const CalibrationGraphs: React.FC<CalibrationGraphsProps> = ({
   joinDimensionKey,
 }) => {
   const [selectedMetricKey, setSelectedMetricKey] = useState<string>('ALL');
-  const [globalChartMode, setGlobalChartMode] = useState<ChartMode>('BAR');
+  const [globalChartMode, setGlobalChartMode] = useState<ChartMode>('LINE');
   const [perGraphModes, setPerGraphModes] = useState<Record<string, ChartMode>>({});
   const [isExportingAll, setIsExportingAll] = useState<boolean>(false);
 
