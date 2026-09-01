@@ -23,6 +23,10 @@ export const JoinBuilder: React.FC<JoinBuilderProps> = ({
   const [caseId, setCaseId] = useState<string>('270');
   const [generatedSql, setGeneratedSql] = useState<string>('');
   const [showSqlEditor, setShowSqlEditor] = useState<boolean>(false);
+  // Tracks whether the user has hand-edited the SQL textarea. While true, the
+  // join-config controls below stop overwriting it — otherwise every click on
+  // Join Type / Keys / Case silently discarded the user's manual SQL edits.
+  const [isSqlDirty, setIsSqlDirty] = useState<boolean>(false);
 
   // Available common keys between SMT and Blazor
   const commonKeys = React.useMemo(() => {
@@ -53,12 +57,22 @@ export const JoinBuilder: React.FC<JoinBuilderProps> = ({
     }
   }, [commonKeys, selectedKeys.length]);
 
-  // Generate PostgreSQL JOIN statement dynamically
+  // Reset the dirty flag whenever a fresh dataset is loaded — a new upload
+  // invalidates any hand-edited SQL from the previous dataset anyway.
+  useEffect(() => {
+    setIsSqlDirty(false);
+  }, [smtDataset, blazorDataset]);
+
+  // Generate PostgreSQL JOIN statement dynamically from the controls above.
+  // Skipped while the user has manually edited the SQL, so we never silently
+  // clobber their edits when they touch a Join Type / Key / Case control.
   useEffect(() => {
     if (!smtDataset || !blazorDataset) {
       setGeneratedSql('-- Upload both SMT and Blazor datasets to build SQL query');
       return;
     }
+
+    if (isSqlDirty) return;
 
     const sql = generateCalibrationSql(smtDataset, blazorDataset, {
       joinType,
@@ -68,7 +82,20 @@ export const JoinBuilder: React.FC<JoinBuilderProps> = ({
     });
 
     setGeneratedSql(sql);
-  }, [smtDataset, blazorDataset, joinType, selectedKeys, groupByDim, caseId]);
+  }, [smtDataset, blazorDataset, joinType, selectedKeys, groupByDim, caseId, isSqlDirty]);
+
+  // Explicitly discard manual edits and resync SQL from the current controls
+  const handleSyncSqlFromControls = () => {
+    if (!smtDataset || !blazorDataset) return;
+    const sql = generateCalibrationSql(smtDataset, blazorDataset, {
+      joinType,
+      keys: selectedKeys,
+      groupBy: groupByDim,
+      caseId,
+    });
+    setGeneratedSql(sql);
+    setIsSqlDirty(false);
+  };
 
   const handleKeyToggle = (key: string) => {
     setSelectedKeys((prev) => {
@@ -118,16 +145,35 @@ export const JoinBuilder: React.FC<JoinBuilderProps> = ({
           </p>
         </div>
 
-        <Tooltip content="Toggle raw PostgreSQL SQL query editor and viewer">
-          <button
-            className="cg-btn"
-            style={{ padding: '6px 12px', fontSize: '12px', backgroundColor: '#ffffff' }}
-            onClick={() => setShowSqlEditor(!showSqlEditor)}
-          >
-            <Code size={14} />
-            {showSqlEditor ? 'Hide SQL Code' : 'View SQL Code'}
-          </button>
-        </Tooltip>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          {isSqlDirty && (
+            <Tooltip content="SQL has been hand-edited and is no longer synced with the controls above.">
+              <span
+                style={{
+                  fontSize: '11px',
+                  fontWeight: 700,
+                  color: '#b91c1c',
+                  backgroundColor: '#fef2f2',
+                  border: '1.5px solid #b91c1c',
+                  borderRadius: '6px',
+                  padding: '3px 8px',
+                }}
+              >
+                ⚠ Custom SQL
+              </span>
+            </Tooltip>
+          )}
+          <Tooltip content="Toggle raw PostgreSQL SQL query editor and viewer">
+            <button
+              className="cg-btn"
+              style={{ padding: '6px 12px', fontSize: '12px', backgroundColor: '#ffffff' }}
+              onClick={() => setShowSqlEditor(!showSqlEditor)}
+            >
+              <Code size={14} />
+              {showSqlEditor ? 'Hide SQL Code' : 'View SQL Code'}
+            </button>
+          </Tooltip>
+        </div>
       </div>
 
       {/* Join Controls Grid */}
@@ -302,9 +348,20 @@ export const JoinBuilder: React.FC<JoinBuilderProps> = ({
             lineHeight: 1.5,
           }}
         >
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', color: '#94a3b8', marginBottom: '8px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', color: '#94a3b8', marginBottom: '8px', flexWrap: 'wrap', gap: '8px' }}>
             <span>-- PostgreSQL Executable SQL Query (PGlite WASM)</span>
-            <div style={{ display: 'flex', gap: '8px' }}>
+            <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+              {isSqlDirty && (
+                <Tooltip content="You've hand-edited this SQL, so the Join Type / Key / Case controls above no longer regenerate it. Click to discard your edits and resync from those controls.">
+                  <button
+                    className="cg-btn"
+                    style={{ padding: '4px 10px', fontSize: '11px', backgroundColor: '#fef2f2', color: '#b91c1c', borderColor: '#b91c1c' }}
+                    onClick={handleSyncSqlFromControls}
+                  >
+                    ⚠ Custom SQL — Sync from Controls
+                  </button>
+                </Tooltip>
+              )}
               <Tooltip content="Execute this exact SQL query directly against the database to generate graphs">
                 <button
                   className="cg-btn cg-btn-teal"
@@ -319,7 +376,10 @@ export const JoinBuilder: React.FC<JoinBuilderProps> = ({
           </div>
           <textarea
             value={generatedSql}
-            onChange={(e) => setGeneratedSql(e.target.value)}
+            onChange={(e) => {
+              setGeneratedSql(e.target.value);
+              setIsSqlDirty(true);
+            }}
             rows={10}
             style={{
               width: '100%',

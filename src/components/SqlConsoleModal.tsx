@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { X, Play, Terminal, Clock, Copy, Check, Table, Sparkles } from 'lucide-react';
-import { executeSql, QueryResult } from '../services/db';
+import { executeSql, generateBhpDecoderSql, QueryResult } from '../services/db';
 import { Tooltip } from './Tooltip';
 
 interface SqlConsoleModalProps {
@@ -46,47 +46,11 @@ LIMIT 20;`);
 
   const PRESETS = [
     {
+      // Sourced from generateBhpDecoderSql — the same function the app's
+      // auto-generated join uses — so this preset can never drift out of
+      // sync with the "real" query the way the old hardcoded copy did.
       name: 'Decoder Calibration Join (SMT vs Blasor)',
-      query: `SELECT 
-    CAST(b.raw_data->>'Row Labels' AS INTEGER) AS period,
-    s.raw_data->>'CASE_ID' AS case_id,
-    
-    -- 1. Crusher Haul (Converted from Mwmt to Wet Tonnes)
-    ROUND(CAST(s.raw_data->>'Sent to MinistersNorth_Crusher:rom_wmt (Mwmt)' AS NUMERIC) * 1000000.0, 2) AS smt_crusher,
-    ROUND(CAST(b.raw_data->>'Sum of Crusher_Haul_Wet_Tonnes' AS NUMERIC), 2) AS blz_crusher,
-    ROUND(CAST(b.raw_data->>'Sum of Crusher_Haul_Wet_Tonnes' AS NUMERIC) - (CAST(s.raw_data->>'Sent to MinistersNorth_Crusher:rom_wmt (Mwmt)' AS NUMERIC) * 1000000.0), 2) AS delta_crusher,
-    
-    -- 2. Waste Haul (Converted from Mwmt to Wet Tonnes)
-    ROUND(CAST(s.raw_data->>'Sent to MinistersNorth_Waste:rom_wmt (Mwmt)' AS NUMERIC) * 1000000.0, 2) AS smt_waste,
-    ROUND(CAST(b.raw_data->>'Sum of Waste_Haul_Wet_Tonnes' AS NUMERIC), 2) AS blz_waste,
-    ROUND(CAST(b.raw_data->>'Sum of Waste_Haul_Wet_Tonnes' AS NUMERIC) - (CAST(s.raw_data->>'Sent to MinistersNorth_Waste:rom_wmt (Mwmt)' AS NUMERIC) * 1000000.0), 2) AS delta_waste,
-
-    -- 3. Total ExPit Haul (Converted from Mwmt to Wet Tonnes)
-    ROUND(CAST(s.raw_data->>'Sent to MinistersNorth_ExPit:rom_wmt (Mwmt)' AS NUMERIC) * 1000000.0, 2) AS smt_expit,
-    ROUND(CAST(b.raw_data->>'Sum of Total_ExPit_Haul_Wet_Tonnes' AS NUMERIC), 2) AS blz_expit,
-    ROUND(CAST(b.raw_data->>'Sum of Total_ExPit_Haul_Wet_Tonnes' AS NUMERIC) - (CAST(s.raw_data->>'Sent to MinistersNorth_ExPit:rom_wmt (Mwmt)' AS NUMERIC) * 1000000.0), 2) AS delta_expit,
-
-    -- 5. From Stockpile
-    ROUND(CAST(s.raw_data->>'Sent to Total_from_SP:rom_wmt (Mwmt)' AS NUMERIC) * 1000000.0, 2) AS smt_from_stockpile,
-    ROUND(CAST(b.raw_data->>'Sum of From_Stockpile_Wet_Tonnes' AS NUMERIC), 2) AS blz_from_stockpile,
-    ROUND(CAST(b.raw_data->>'Sum of From_Stockpile_Wet_Tonnes' AS NUMERIC) - (CAST(s.raw_data->>'Sent to Total_from_SP:rom_wmt (Mwmt)' AS NUMERIC) * 1000000.0), 2) AS delta_from_stockpile,
-
-    -- 6. Conveyor MIN_CMN (Mapped to MinistersNorth_Crusher per decoder)
-    ROUND(CAST(s.raw_data->>'Sent to MinistersNorth_Crusher:rom_wmt (Mwmt)' AS NUMERIC) * 1000000.0, 2) AS smt_conveyor_min_cmn,
-    ROUND(CAST(b.raw_data->>'Sum of Conveyor from MIN_CMN' AS NUMERIC), 2) AS blz_conveyor_min_cmn,
-    ROUND(CAST(b.raw_data->>'Sum of Conveyor from MIN_CMN' AS NUMERIC) - (CAST(s.raw_data->>'Sent to MinistersNorth_Crusher:rom_wmt (Mwmt)' AS NUMERIC) * 1000000.0), 2) AS delta_conveyor_min_cmn,
-
-    -- 7. To Stockpile
-    ROUND(CAST(s.raw_data->>'Sent to Total_to_SP:rom_wmt (Mwmt)' AS NUMERIC) * 1000000.0, 2) AS smt_to_stockpile,
-    ROUND(CAST(b.raw_data->>'Sum of To_Stockpile_Wet_Tonnes' AS NUMERIC), 2) AS blz_to_stockpile,
-    ROUND(CAST(b.raw_data->>'Sum of To_Stockpile_Wet_Tonnes' AS NUMERIC) - (CAST(s.raw_data->>'Sent to Total_to_SP:rom_wmt (Mwmt)' AS NUMERIC) * 1000000.0), 2) AS delta_to_stockpile
-
-FROM blazor_data b
-INNER JOIN smt_data s
-    ON CAST(b.raw_data->>'Row Labels' AS INTEGER) = CAST(FLOOR(CAST(s.raw_data->>'Period Name' AS NUMERIC)) AS INTEGER)
-WHERE b.raw_data->>'Row Labels' NOT ILIKE '%Grand Total%'
-  AND s.raw_data->>'CASE_ID' = '270'
-ORDER BY period ASC;`,
+      query: generateBhpDecoderSql('270', 'INNER'),
     },
     {
       name: 'SMT Data (First 50)',

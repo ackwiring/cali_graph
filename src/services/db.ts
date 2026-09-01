@@ -255,32 +255,34 @@ export async function getTableStats(tableName: 'smt_data' | 'blazor_data'): Prom
 }
 
 /**
- * Generate PostgreSQL SQL query to join SMT and Blazor datasets
+ * Detect whether a pair of datasets looks like the BHP Ministers North
+ * SMT-vs-Blazor pivot export, based on characteristic column headers.
  */
-export function generateCalibrationSql(
-  smtDataset: ParsedDataset | null,
-  blazorDataset: ParsedDataset | null,
-  config: JoinConfig
-): string {
-  if (!smtDataset || !blazorDataset) {
-    return '-- Upload both SMT and Blazor datasets to generate calibration SQL';
-  }
-
+export function isBhpMinistersNorthDataset(
+  smtDataset: ParsedDataset,
+  blazorDataset: ParsedDataset
+): boolean {
   const isBhpSmt = smtDataset.headers.some((h) => /ministersnorth|period name|case_id/i.test(h));
   const isBhpBlazor = blazorDataset.headers.some((h) => /row labels|sum of/i.test(h));
+  return isBhpSmt || isBhpBlazor;
+}
 
-  // If this is BHP Ministers North SMT vs Blasor Pivot
-  if (isBhpSmt || isBhpBlazor) {
-    const caseId = config.caseId || '270';
-    return `SELECT 
+/**
+ * Canonical BHP Ministers North SMT-vs-Blazor decoder query. This is the
+ * SINGLE SOURCE OF TRUTH for that hardcoded join — it used to be duplicated
+ * (and had already drifted) between this function's caller and the SQL
+ * Console's preset template. Both now call this directly.
+ */
+export function generateBhpDecoderSql(caseId: string, joinType: JoinType): string {
+  return `SELECT
     CAST(b.raw_data->>'Row Labels' AS INTEGER) AS period,
     s.raw_data->>'CASE_ID' AS case_id,
-    
+
     -- 1. Crusher Haul (Converted from Mwmt to Wet Tonnes)
     ROUND(CAST(COALESCE(s.raw_data->>'Sent to MinistersNorth_Crusher:rom_wmt (Mwmt)', s.raw_data->>'Sent to MinistersNorth_Crusher:wmt (Mwmt)', '0') AS NUMERIC) * 1000000.0, 2) AS smt_crusher_haul_wet_tonnes,
     ROUND(CAST(COALESCE(b.raw_data->>'Sum of Crusher_Haul_Wet_Tonnes', '0') AS NUMERIC), 2) AS blazor_crusher_haul_wet_tonnes,
     ROUND(CAST(COALESCE(b.raw_data->>'Sum of Crusher_Haul_Wet_Tonnes', '0') AS NUMERIC) - (CAST(COALESCE(s.raw_data->>'Sent to MinistersNorth_Crusher:rom_wmt (Mwmt)', s.raw_data->>'Sent to MinistersNorth_Crusher:wmt (Mwmt)', '0') AS NUMERIC) * 1000000.0), 2) AS delta_crusher_haul_wet_tonnes,
-    
+
     -- 2. Waste Haul (Converted from Mwmt to Wet Tonnes)
     ROUND(CAST(COALESCE(s.raw_data->>'Sent to MinistersNorth_Waste:rom_wmt (Mwmt)', s.raw_data->>'Sent to MinistersNorth_Waste:wmt (Mwmt)', '0') AS NUMERIC) * 1000000.0, 2) AS smt_waste_haul_wet_tonnes,
     ROUND(CAST(COALESCE(b.raw_data->>'Sum of Waste_Haul_Wet_Tonnes', '0') AS NUMERIC), 2) AS blazor_waste_haul_wet_tonnes,
@@ -312,11 +314,28 @@ export function generateCalibrationSql(
     ROUND(CAST(COALESCE(b.raw_data->>'Sum of To_Stockpile_Wet_Tonnes', '0') AS NUMERIC) - (CAST(COALESCE(s.raw_data->>'Sent to Total_to_SP:rom_wmt (Mwmt)', '0') AS NUMERIC) * 1000000.0), 2) AS delta_to_stockpile_wet_tonnes
 
 FROM blazor_data b
-${config.joinType} JOIN smt_data s
+${joinType} JOIN smt_data s
     ON CAST(b.raw_data->>'Row Labels' AS INTEGER) = CAST(FLOOR(CAST(s.raw_data->>'Period Name' AS NUMERIC)) AS INTEGER)
 WHERE b.raw_data->>'Row Labels' NOT ILIKE '%Grand Total%'
   AND s.raw_data->>'CASE_ID' = '${caseId}'
 ORDER BY period ASC;`;
+}
+
+/**
+ * Generate PostgreSQL SQL query to join SMT and Blazor datasets
+ */
+export function generateCalibrationSql(
+  smtDataset: ParsedDataset | null,
+  blazorDataset: ParsedDataset | null,
+  config: JoinConfig
+): string {
+  if (!smtDataset || !blazorDataset) {
+    return '-- Upload both SMT and Blazor datasets to generate calibration SQL';
+  }
+
+  // If this is BHP Ministers North SMT vs Blasor Pivot
+  if (isBhpMinistersNorthDataset(smtDataset, blazorDataset)) {
+    return generateBhpDecoderSql(config.caseId || '270', config.joinType);
   }
 
   // Standard generic join fallback

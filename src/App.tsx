@@ -26,6 +26,11 @@ export const App: React.FC = () => {
 
   const [joinedRows, setJoinedRows] = useState<Record<string, any>[]>([]);
 
+  // User-facing notice surfaced whenever a join query fails or silently falls
+  // back to another query, so the graphs never show data the user didn't ask
+  // for without them knowing why.
+  const [joinNotice, setJoinNotice] = useState<string | null>(null);
+
   // Initialize embedded PostgreSQL
   useEffect(() => {
     getDb()
@@ -33,16 +38,18 @@ export const App: React.FC = () => {
       .catch((err) => console.error('Failed to initialize PGlite PostgreSQL engine:', err));
   }, []);
 
-  // Execute Join Query
+  // Execute the auto-generated Join Query. Returns whether it succeeded so
+  // callers (e.g. the custom-SQL fallback path) can report what happened
+  // instead of failing silently.
   const runJoinQuery = useCallback(
     async (
       smt: ParsedDataset | null,
       blz: ParsedDataset | null,
       config: JoinConfig
-    ) => {
+    ): Promise<{ ok: boolean; error?: string }> => {
       if (!smt || !blz) {
         setJoinedRows([]);
-        return;
+        return { ok: false, error: 'Both SMT and Blazor datasets are required.' };
       }
 
       setIsJoinExecuting(true);
@@ -52,11 +59,17 @@ export const App: React.FC = () => {
         const res = await executeSql(sql);
         if (!res.error && res.rows && res.rows.length > 0) {
           setJoinedRows(res.rows);
-        } else {
-          console.error('SQL Join error:', res.error);
+          return { ok: true };
         }
-      } catch (e) {
-        console.error('Failed to run join query:', e);
+        setJoinedRows([]);
+        const error = res.error || 'The join returned no matching rows.';
+        console.error('SQL Join error:', error);
+        return { ok: false, error };
+      } catch (e: any) {
+        setJoinedRows([]);
+        const error = e?.message || String(e);
+        console.error('Failed to run join query:', error);
+        return { ok: false, error };
       } finally {
         setIsJoinExecuting(false);
       }
@@ -95,7 +108,8 @@ export const App: React.FC = () => {
       if (currentSmt && currentBlazor) {
         const newConfig = { ...joinConfig, caseId: '270' };
         setJoinConfig(newConfig);
-        await runJoinQuery(currentSmt, currentBlazor, newConfig);
+        const outcome = await runJoinQuery(currentSmt, currentBlazor, newConfig);
+        setJoinNotice(outcome.ok ? null : `Could not auto-join the uploaded datasets: ${outcome.error}`);
       }
     } catch (err: any) {
       alert(`Error parsing file(s): ${err.message || err}`);
@@ -124,7 +138,8 @@ export const App: React.FC = () => {
         caseId: '270',
       };
       setJoinConfig(sampleConfig);
-      await runJoinQuery(smt, blz, sampleConfig);
+      const outcome = await runJoinQuery(smt, blz, sampleConfig);
+      setJoinNotice(outcome.ok ? null : `Could not auto-join the sample datasets: ${outcome.error}`);
     } catch (err: any) {
       alert(`Error loading sample data: ${err.message || err}`);
     } finally {
@@ -144,6 +159,7 @@ export const App: React.FC = () => {
       setBlazorDataset(null);
     }
     setJoinedRows([]);
+    setJoinNotice(null);
   };
 
   // Reset All Datasets
@@ -153,9 +169,14 @@ export const App: React.FC = () => {
     setSmtDataset(null);
     setBlazorDataset(null);
     setJoinedRows([]);
+    setJoinNotice(null);
   };
 
-  // Custom Join Execution Handler
+  // Custom Join Execution Handler. If the user's SQL (hand-edited or a
+  // preset) fails or returns nothing, we fall back to the auto-generated
+  // join so the app keeps showing *something* useful — but that fallback
+  // must never be silent: the graphs would otherwise show data the user
+  // never asked for, with no indication their query didn't run.
   const handleExecuteJoin = async (
     sql: string,
     config: JoinConfig
@@ -166,11 +187,25 @@ export const App: React.FC = () => {
       const res = await executeSql(sql);
       if (!res.error && res.rows && res.rows.length > 0) {
         setJoinedRows(res.rows);
-      } else {
-        await runJoinQuery(smtDataset, blazorDataset, config);
+        setJoinNotice(null);
+        return;
       }
-    } catch (e) {
-      await runJoinQuery(smtDataset, blazorDataset, config);
+
+      const primaryError = res.error || 'Your SQL query returned no rows.';
+      const fallback = await runJoinQuery(smtDataset, blazorDataset, config);
+      setJoinNotice(
+        fallback.ok
+          ? `Your custom SQL failed (${primaryError}). Showing the auto-generated join instead — the graphs below do NOT reflect your edited query.`
+          : `Your custom SQL failed (${primaryError}), and the auto-generated fallback also failed (${fallback.error}). No calibration data is currently shown.`
+      );
+    } catch (e: any) {
+      const primaryError = e?.message || String(e);
+      const fallback = await runJoinQuery(smtDataset, blazorDataset, config);
+      setJoinNotice(
+        fallback.ok
+          ? `Your custom SQL threw an error (${primaryError}). Showing the auto-generated join instead — the graphs below do NOT reflect your edited query.`
+          : `Your custom SQL threw an error (${primaryError}), and the auto-generated fallback also failed (${fallback.error}). No calibration data is currently shown.`
+      );
     } finally {
       setIsJoinExecuting(false);
     }
@@ -180,6 +215,7 @@ export const App: React.FC = () => {
   const handleApplyFromSqlConsole = (rows: Record<string, any>[], _sql: string) => {
     if (rows && rows.length > 0) {
       setJoinedRows(rows);
+      setJoinNotice(null);
       const firstRow = rows[0];
       const dimKey = Object.keys(firstRow).find((k) => /period|year|label/i.test(k)) || Object.keys(firstRow)[0] || 'period';
       setJoinConfig((prev) => ({ ...prev, groupBy: dimKey }));
@@ -229,6 +265,37 @@ export const App: React.FC = () => {
 
       {/* Main Canvas Container */}
       <main style={{ maxWidth: '1600px', margin: '0 auto', padding: '24px 20px' }}>
+        {/* Join / Query Notice Banner — surfaces silent-fallback situations so the
+            graphs never appear to reflect a query that actually failed */}
+        {joinNotice && (
+          <div
+            role="alert"
+            style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'flex-start',
+              gap: '12px',
+              backgroundColor: '#fef2f2',
+              border: '2px solid #b91c1c',
+              borderRadius: '10px',
+              padding: '12px 16px',
+              marginBottom: '20px',
+              color: '#991b1b',
+              fontSize: '13px',
+              fontWeight: 600,
+            }}
+          >
+            <span>⚠ {joinNotice}</span>
+            <button
+              className="cg-btn"
+              style={{ padding: '2px 8px', fontSize: '11px', flexShrink: 0 }}
+              onClick={() => setJoinNotice(null)}
+            >
+              Dismiss
+            </button>
+          </div>
+        )}
+
         {/* Drag & Drop Upload Canvas */}
         <DragDropCanvas
           smtDataset={smtDataset}
