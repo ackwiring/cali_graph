@@ -1,5 +1,13 @@
 # Changelog — Calibration Grapher
 
+## [1.1.0] - 2026-09-01
+### Added
+- **Tornado Graph Visualization Mode**: Bidirectional horizontal diverging butterfly chart (`indexAxis: 'y'`) centered at $X = 0$, mapping SMT Tool Output to the left and Blazor Composite to the right with absolute magnitude tick formatting and rich variance discrepancy tooltips.
+- **Graph Visualization View Toggles**: Global toolbar and per-graph quick switchers between **Grouped Bar**, **Trend Line**, **Tornado Graph**, **Variance Δ**, and **45° Parity ($y = x$)**.
+- **PNG Graph Export**: High-resolution image generation with custom title banner, period information, SMT/Blazor/Delta/R² KPI cards, and canvas graphics.
+- **PDF Calibration Report Generation**: Client-side A4 landscape PDF export per graph with structured headers, key performance indicators, and crisp chart vector/raster rendering powered by `jsPDF`.
+- **Consolidated 7-Metric PDF Report Export**: One-click "Export All PDF Report" button generating a multi-page PDF document spanning all 7 target calibration metrics.
+
 ## [1.0.0] - 2026-09-01
 ### Added
 - **Drag & Drop Canvas Upload**: Dual file ingestion zones for SMT Output and Blazor Composite files (CSV, TSV, TXT, Excel, JSON).

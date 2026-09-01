@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import {
   Chart as ChartJS,
   CategoryScale,
@@ -12,9 +12,25 @@ import {
   Filler,
 } from 'chart.js';
 import { Bar, Line, Scatter } from 'react-chartjs-2';
-import { BarChart3, LineChart, Activity, TrendingUp, Sparkles } from 'lucide-react';
+import {
+  BarChart3,
+  LineChart,
+  SlidersHorizontal,
+  Activity,
+  TrendingUp,
+  Sparkles,
+  Download,
+  FileImage,
+  FileText,
+} from 'lucide-react';
 import { TARGET_METRICS } from '../services/fileParser';
 import { Tooltip } from './Tooltip';
+import {
+  exportGraphAsPng,
+  exportGraphAsPdf,
+  exportAllGraphsAsPdf,
+  GraphExportParams,
+} from '../services/graphExport';
 
 ChartJS.register(
   CategoryScale,
@@ -33,14 +49,19 @@ interface CalibrationGraphsProps {
   joinDimensionKey: string;
 }
 
-type ChartMode = 'BAR' | 'LINE' | 'DELTA' | 'PARITY';
+export type ChartMode = 'BAR' | 'LINE' | 'TORNADO' | 'DELTA' | 'PARITY';
 
 export const CalibrationGraphs: React.FC<CalibrationGraphsProps> = ({
   joinedRows,
   joinDimensionKey,
 }) => {
   const [selectedMetricKey, setSelectedMetricKey] = useState<string>('ALL');
-  const [chartMode, setChartMode] = useState<ChartMode>('BAR');
+  const [globalChartMode, setGlobalChartMode] = useState<ChartMode>('BAR');
+  const [perGraphModes, setPerGraphModes] = useState<Record<string, ChartMode>>({});
+  const [isExportingAll, setIsExportingAll] = useState<boolean>(false);
+
+  // Store Chart.js instance references for high-res canvas exports
+  const chartRefs = useRef<Record<string, any>>({});
 
   if (!joinedRows || joinedRows.length === 0) {
     return (
@@ -64,45 +85,49 @@ export const CalibrationGraphs: React.FC<CalibrationGraphsProps> = ({
     );
   }
 
-function extractMetricValue(row: Record<string, any>, prefix: 'smt' | 'blazor', metricKey: string): number {
-  const shortAliases: Record<string, string[]> = {
-    crusher_haul_wet_tonnes: ['crusher_haul_wet_tonnes', 'crusher_haul', 'crusher', 'crusher_haul_wt'],
-    waste_haul_wet_tonnes: ['waste_haul_wet_tonnes', 'waste_haul', 'waste', 'waste_haul_wt'],
-    total_expit_haul_wet_tonnes: ['total_expit_haul_wet_tonnes', 'total_expit_haul', 'total_expit', 'expit_haul', 'expit', 'total_expit_haul_wt'],
-    expit_ore_wet_tonnes: ['expit_ore_wet_tonnes', 'expit_ore', 'ore_expit', 'expit_ore_wt'],
-    from_stockpile_wet_tonnes: ['from_stockpile_wet_tonnes', 'from_stockpile', 'from_sp', 'from_stockpile_wt'],
-    conveyor_from_min_cmn: ['conveyor_from_min_cmn', 'conveyor_min_cmn', 'conveyor', 'conveyor_from_min_cmn_wt'],
-    to_stockpile_wet_tonnes: ['to_stockpile_wet_tonnes', 'to_stockpile', 'to_sp', 'to_stockpile_wt'],
-  };
+  function extractMetricValue(
+    row: Record<string, any>,
+    prefix: 'smt' | 'blazor',
+    metricKey: string
+  ): number {
+    const shortAliases: Record<string, string[]> = {
+      crusher_haul_wet_tonnes: ['crusher_haul_wet_tonnes', 'crusher_haul', 'crusher', 'crusher_haul_wt'],
+      waste_haul_wet_tonnes: ['waste_haul_wet_tonnes', 'waste_haul', 'waste', 'waste_haul_wt'],
+      total_expit_haul_wet_tonnes: ['total_expit_haul_wet_tonnes', 'total_expit_haul', 'total_expit', 'expit_haul', 'expit', 'total_expit_haul_wt'],
+      expit_ore_wet_tonnes: ['expit_ore_wet_tonnes', 'expit_ore', 'ore_expit', 'expit_ore_wt'],
+      from_stockpile_wet_tonnes: ['from_stockpile_wet_tonnes', 'from_stockpile', 'from_sp', 'from_stockpile_wt'],
+      conveyor_from_min_cmn: ['conveyor_from_min_cmn', 'conveyor_min_cmn', 'conveyor', 'conveyor_from_min_cmn_wt'],
+      to_stockpile_wet_tonnes: ['to_stockpile_wet_tonnes', 'to_stockpile', 'to_sp', 'to_stockpile_wt'],
+    };
 
-  const prefixes = prefix === 'smt' ? ['smt_', 'smt'] : ['blazor_', 'blz_', 'blazor', 'blz'];
-  const aliases = shortAliases[metricKey] || [metricKey];
+    const prefixes = prefix === 'smt' ? ['smt_', 'smt'] : ['blazor_', 'blz_', 'blazor', 'blz'];
+    const aliases = shortAliases[metricKey] || [metricKey];
 
-  for (const p of prefixes) {
-    for (const a of aliases) {
-      const fullKey = `${p}${a}`;
-      if (row[fullKey] !== undefined && row[fullKey] !== null) {
-        return Number(row[fullKey]) || 0;
+    for (const p of prefixes) {
+      for (const a of aliases) {
+        const fullKey = `${p}${a}`;
+        if (row[fullKey] !== undefined && row[fullKey] !== null) {
+          return Number(row[fullKey]) || 0;
+        }
       }
     }
-  }
 
-  // Case-insensitive check across row keys
-  for (const k of Object.keys(row)) {
-    const kLow = k.toLowerCase();
-    for (const p of prefixes) {
-      if (kLow.startsWith(p)) {
-        for (const a of aliases) {
-          if (kLow.includes(a)) {
-            return Number(row[k]) || 0;
+    // Case-insensitive check across row keys
+    for (const k of Object.keys(row)) {
+      const kLow = k.toLowerCase();
+      for (const p of prefixes) {
+        if (kLow.startsWith(p)) {
+          for (const a of aliases) {
+            if (kLow.includes(a)) {
+              return Number(row[k]) || 0;
+            }
           }
         }
       }
     }
-  }
 
-  return 0;
-}
+    return 0;
+  }
 
   // Dimension labels
   const firstRow = joinedRows[0] || {};
@@ -159,13 +184,129 @@ function extractMetricValue(row: Record<string, any>, prefix: 'smt' | 'blazor', 
     };
   });
 
+  const getEffectiveMode = (metricKey: string): ChartMode => {
+    return perGraphModes[metricKey] || globalChartMode;
+  };
+
+  const getModeLabel = (mode: ChartMode): string => {
+    switch (mode) {
+      case 'BAR':
+        return 'Grouped Bar';
+      case 'LINE':
+        return 'Trend Line';
+      case 'TORNADO':
+        return 'Tornado Graph';
+      case 'DELTA':
+        return 'Variance Δ';
+      case 'PARITY':
+        return 'Parity (y=x)';
+      default:
+        return mode;
+    }
+  };
+
+  // Helper to extract canvas element for a metric
+  const getCanvasForMetric = (metricKey: string): HTMLCanvasElement | null => {
+    const ref = chartRefs.current[metricKey];
+    if (!ref) return null;
+    return ref.canvas || ref.ctx?.canvas || null;
+  };
+
+  // Export Single Graph as PNG
+  const handleExportPng = async (stat: (typeof metricStats)[0]) => {
+    const canvas = getCanvasForMetric(stat.metric.key);
+    if (!canvas) {
+      alert('Graph is rendering, please try again in a moment.');
+      return;
+    }
+    const currentMode = getEffectiveMode(stat.metric.key);
+    await exportGraphAsPng({
+      chartCanvas: canvas,
+      metricName: stat.metric.canonicalName,
+      shortName: stat.metric.shortName,
+      chartMode: getModeLabel(currentMode),
+      periodCount: joinedRows.length,
+      kpis: {
+        totalSmt: stat.totalSmt,
+        totalBlz: stat.totalBlz,
+        totalDelta: stat.totalDelta,
+        totalPctDiff: stat.totalPctDiff,
+        rSquared: stat.rSquared,
+      },
+    });
+  };
+
+  // Export Single Graph as PDF
+  const handleExportPdf = async (stat: (typeof metricStats)[0]) => {
+    const canvas = getCanvasForMetric(stat.metric.key);
+    if (!canvas) {
+      alert('Graph is rendering, please try again in a moment.');
+      return;
+    }
+    const currentMode = getEffectiveMode(stat.metric.key);
+    await exportGraphAsPdf({
+      chartCanvas: canvas,
+      metricName: stat.metric.canonicalName,
+      shortName: stat.metric.shortName,
+      chartMode: getModeLabel(currentMode),
+      periodCount: joinedRows.length,
+      kpis: {
+        totalSmt: stat.totalSmt,
+        totalBlz: stat.totalBlz,
+        totalDelta: stat.totalDelta,
+        totalPctDiff: stat.totalPctDiff,
+        rSquared: stat.rSquared,
+      },
+    });
+  };
+
+  // Export All 7 Graphs as a Comprehensive PDF Report
+  const handleExportAllPdf = async () => {
+    setIsExportingAll(true);
+    try {
+      const itemsToExport: GraphExportParams[] = [];
+
+      for (const stat of metricStats) {
+        const canvas = getCanvasForMetric(stat.metric.key);
+        if (canvas) {
+          const currentMode = getEffectiveMode(stat.metric.key);
+          itemsToExport.push({
+            chartCanvas: canvas,
+            metricName: stat.metric.canonicalName,
+            shortName: stat.metric.shortName,
+            chartMode: getModeLabel(currentMode),
+            periodCount: joinedRows.length,
+            kpis: {
+              totalSmt: stat.totalSmt,
+              totalBlz: stat.totalBlz,
+              totalDelta: stat.totalDelta,
+              totalPctDiff: stat.totalPctDiff,
+              rSquared: stat.rSquared,
+            },
+          });
+        }
+      }
+
+      if (itemsToExport.length === 0) {
+        alert('Please switch to "All 7 Graphs View" to export the full comprehensive report.');
+        return;
+      }
+
+      await exportAllGraphsAsPdf(itemsToExport);
+    } catch (err: any) {
+      alert(`Error generating PDF report: ${err.message || err}`);
+    } finally {
+      setIsExportingAll(false);
+    }
+  };
+
   const renderSingleGraph = (stat: (typeof metricStats)[0]) => {
     const { metric, smtValues, blzValues, deltas, totalSmt, totalBlz, totalDelta, totalPctDiff, rSquared } = stat;
+    const mode = getEffectiveMode(metric.key);
 
-    // Prepare chart data based on mode
     let chartComponent = null;
 
-    if (chartMode === 'BAR') {
+    if (mode === 'BAR') {
       const data = {
         labels,
         datasets: [
@@ -207,8 +348,8 @@ function extractMetricValue(row: Record<string, any>, prefix: 'smt' | 'blazor', 
         },
       };
 
-      chartComponent = <Bar data={data} options={options} />;
-    } else if (chartMode === 'LINE') {
+      chartComponent = <Bar ref={(el) => (chartRefs.current[metric.key] = el)} data={data} options={options} />;
+    } else if (mode === 'LINE') {
       const data = {
         labels,
         datasets: [
@@ -216,7 +357,7 @@ function extractMetricValue(row: Record<string, any>, prefix: 'smt' | 'blazor', 
             label: 'SMT Tool Output',
             data: smtValues,
             borderColor: '#2563eb',
-            backgroundColor: 'rgba(37, 99, 235, 0.1)',
+            backgroundColor: 'rgba(37, 99, 235, 0.12)',
             borderWidth: 2.5,
             fill: true,
             tension: 0.2,
@@ -229,7 +370,7 @@ function extractMetricValue(row: Record<string, any>, prefix: 'smt' | 'blazor', 
             label: 'Blazor Composite',
             data: blzValues,
             borderColor: '#9333ea',
-            backgroundColor: 'rgba(147, 51, 234, 0.1)',
+            backgroundColor: 'rgba(147, 51, 234, 0.12)',
             borderWidth: 2.5,
             fill: true,
             tension: 0.2,
@@ -260,8 +401,83 @@ function extractMetricValue(row: Record<string, any>, prefix: 'smt' | 'blazor', 
         },
       };
 
-      chartComponent = <Line data={data} options={options} />;
-    } else if (chartMode === 'DELTA') {
+      chartComponent = <Line ref={(el) => (chartRefs.current[metric.key] = el)} data={data} options={options} />;
+    } else if (mode === 'TORNADO') {
+      // Bidirectional Horizontal Tornado / Butterfly Graph
+      const maxVal = Math.max(...smtValues.map(Math.abs), ...blzValues.map(Math.abs), 1);
+
+      const data = {
+        labels,
+        datasets: [
+          {
+            label: 'SMT Tool (Left / Baseline)',
+            data: smtValues.map((v) => -Math.abs(v)),
+            backgroundColor: '#2563eb',
+            borderColor: '#000000',
+            borderWidth: 1.5,
+            borderRadius: 4,
+          },
+          {
+            label: 'Blazor Composite (Right)',
+            data: blzValues.map((v) => Math.abs(v)),
+            backgroundColor: '#9333ea',
+            borderColor: '#000000',
+            borderWidth: 1.5,
+            borderRadius: 4,
+          },
+        ],
+      };
+
+      const options: any = {
+        indexAxis: 'y' as const,
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: { position: 'top' as const, labels: { font: { weight: 'bold' } } },
+          tooltip: {
+            callbacks: {
+              label: (ctx: any) => {
+                const isSmt = ctx.datasetIndex === 0;
+                const prefix = isSmt ? 'SMT Output' : 'Blazor Composite';
+                return `${prefix}: ${Math.abs(ctx.raw).toLocaleString()} Tonnes`;
+              },
+              afterLabel: (ctx: any) => {
+                const idx = ctx.dataIndex;
+                const s = smtValues[idx] || 0;
+                const b = blzValues[idx] || 0;
+                const d = b - s;
+                const pct = s > 0 ? ((d / s) * 100).toFixed(2) : '0.00';
+                return `Period Variance Δ: ${d >= 0 ? '+' : ''}${Math.round(d).toLocaleString()} t (${pct}%)`;
+              },
+            },
+          },
+        },
+        scales: {
+          x: {
+            suggestedMin: -maxVal * 1.08,
+            suggestedMax: maxVal * 1.08,
+            ticks: {
+              callback: (val: any) => Math.abs(Number(val)).toLocaleString(),
+            },
+            title: {
+              display: true,
+              text: '← SMT Tool (Wet Tonnes)  |  Blazor Composite (Wet Tonnes) →',
+              font: { weight: 'bold' },
+              color: '#0f172a',
+            },
+            grid: {
+              color: (ctx: any) => (ctx.tick && ctx.tick.value === 0 ? '#000000' : '#e2e8f0'),
+              lineWidth: (ctx: any) => (ctx.tick && ctx.tick.value === 0 ? 2 : 1),
+            },
+          },
+          y: {
+            title: { display: true, text: 'Period / Time Horizon', font: { weight: 'bold' } },
+          },
+        },
+      };
+
+      chartComponent = <Bar ref={(el) => (chartRefs.current[metric.key] = el)} data={data} options={options} />;
+    } else if (mode === 'DELTA') {
       const data = {
         labels,
         datasets: [
@@ -295,8 +511,8 @@ function extractMetricValue(row: Record<string, any>, prefix: 'smt' | 'blazor', 
         },
       };
 
-      chartComponent = <Bar data={data} options={options} />;
-    } else if (chartMode === 'PARITY') {
+      chartComponent = <Bar ref={(el) => (chartRefs.current[metric.key] = el)} data={data} options={options} />;
+    } else if (mode === 'PARITY') {
       const scatterPoints = smtValues.map((s, idx) => ({ x: s, y: blzValues[idx], label: labels[idx] }));
       const maxVal = Math.max(...smtValues, ...blzValues);
 
@@ -349,7 +565,7 @@ function extractMetricValue(row: Record<string, any>, prefix: 'smt' | 'blazor', 
         },
       };
 
-      chartComponent = <Scatter data={data as any} options={options} />;
+      chartComponent = <Scatter ref={(el) => (chartRefs.current[metric.key] = el)} data={data as any} options={options} />;
     }
 
     return (
@@ -362,17 +578,18 @@ function extractMetricValue(row: Record<string, any>, prefix: 'smt' | 'blazor', 
           marginBottom: '20px',
         }}
       >
-        {/* Metric Title & Subtitle */}
+        {/* Metric Header with Titles & Per-Graph Controls */}
         <div
           style={{
             display: 'flex',
             justifyContent: 'space-between',
             alignItems: 'center',
             flexWrap: 'wrap',
-            gap: '8px',
+            gap: '10px',
             marginBottom: '12px',
           }}
         >
+          {/* Title & Period Info */}
           <div>
             <h3
               className="cg-title"
@@ -398,24 +615,100 @@ function extractMetricValue(row: Record<string, any>, prefix: 'smt' | 'blazor', 
               {metric.canonicalName}
             </h3>
             <div className="cg-subtitle" style={{ fontSize: '12px', marginTop: '2px' }}>
-              Comparison across {joinedRows.length} calibration periods
+              Comparison across {joinedRows.length} calibration periods  •  Current View: {getModeLabel(mode)}
             </div>
           </div>
 
-          <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-            <Tooltip content={`Calibration correlation goodness-of-fit R² value (1.0 = perfect parity).`}>
+          {/* Controls: Mode Switcher, R² Badge & Export Actions */}
+          <div style={{ display: 'flex', gap: '6px', alignItems: 'center', flexWrap: 'wrap' }}>
+            {/* R² Badge */}
+            <Tooltip content="Calibration correlation goodness-of-fit R² value (1.0 = perfect parity).">
               <span
                 style={{
                   backgroundColor: '#f1f5f9',
                   border: '1.5px solid #000000',
                   borderRadius: '6px',
-                  padding: '3px 8px',
+                  padding: '4px 8px',
                   fontSize: '11px',
                   fontWeight: 700,
+                  marginRight: '4px',
                 }}
               >
                 R² = {rSquared.toFixed(4)}
               </span>
+            </Tooltip>
+
+            {/* Per-Graph View Selector Buttons */}
+            <div style={{ display: 'flex', backgroundColor: '#f1f5f9', borderRadius: '6px', padding: '2px', border: '1px solid #cbd5e1' }}>
+              {(
+                [
+                  { id: 'BAR', label: 'Bar', icon: BarChart3, tip: 'Grouped Bar View' },
+                  { id: 'LINE', label: 'Line', icon: LineChart, tip: 'Trend Line View' },
+                  { id: 'TORNADO', label: 'Tornado', icon: SlidersHorizontal, tip: 'Bidirectional Tornado / Butterfly View' },
+                  { id: 'DELTA', label: 'Δ', icon: Activity, tip: 'Variance Δ View' },
+                  { id: 'PARITY', label: 'Parity', icon: Sparkles, tip: '45° Parity View' },
+                ] as const
+              ).map((m) => {
+                const Icon = m.icon;
+                const isSelected = mode === m.id;
+                return (
+                  <Tooltip key={m.id} content={m.tip}>
+                    <button
+                      style={{
+                        background: isSelected ? '#0d9488' : 'transparent',
+                        color: isSelected ? '#ffffff' : '#475569',
+                        border: 'none',
+                        borderRadius: '4px',
+                        padding: '4px 7px',
+                        fontSize: '11px',
+                        fontWeight: 700,
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '3px',
+                      }}
+                      onClick={() => setPerGraphModes((prev) => ({ ...prev, [metric.key]: m.id }))}
+                    >
+                      <Icon size={12} />
+                      {m.label}
+                    </button>
+                  </Tooltip>
+                );
+              })}
+            </div>
+
+            {/* PNG Download Button */}
+            <Tooltip content={`Download '${metric.shortName}' graph as high-resolution PNG image with KPIs.`}>
+              <button
+                className="cg-btn"
+                style={{
+                  padding: '4px 9px',
+                  fontSize: '11px',
+                  backgroundColor: '#ffffff',
+                  color: '#0f172a',
+                }}
+                onClick={() => handleExportPng(stat)}
+              >
+                <FileImage size={13} color="#2563eb" />
+                PNG
+              </button>
+            </Tooltip>
+
+            {/* PDF Download Button */}
+            <Tooltip content={`Download '${metric.shortName}' graph as publication-ready PDF report.`}>
+              <button
+                className="cg-btn"
+                style={{
+                  padding: '4px 9px',
+                  fontSize: '11px',
+                  backgroundColor: '#ffffff',
+                  color: '#0f172a',
+                }}
+                onClick={() => handleExportPdf(stat)}
+              >
+                <FileText size={13} color="#ea580c" />
+                PDF
+              </button>
             </Tooltip>
           </div>
         </div>
@@ -525,7 +818,7 @@ function extractMetricValue(row: Record<string, any>, prefix: 'smt' | 'blazor', 
 
   return (
     <section style={{ marginBottom: '32px' }}>
-      {/* Top Header & Chart View Mode Switcher */}
+      {/* Top Header & Global Chart View Mode Switcher */}
       <div
         className="cg-container"
         style={{
@@ -558,19 +851,21 @@ function extractMetricValue(row: Record<string, any>, prefix: 'smt' | 'blazor', 
           </p>
         </div>
 
-        {/* Chart Mode Controls */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
-          <span style={{ fontSize: '12px', fontWeight: 700, color: '#475569', marginRight: '4px' }}>Chart View:</span>
+        {/* Global Controls: View Mode Toggles & Report Export */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+          <span style={{ fontSize: '12px', fontWeight: 700, color: '#475569', marginRight: '2px' }}>Global View:</span>
 
           {(
             [
               { id: 'BAR', label: 'Grouped Bar', icon: BarChart3, tip: 'Side-by-side comparison bars for each period' },
               { id: 'LINE', label: 'Trend Line', icon: LineChart, tip: 'Continuous trajectory comparison over time' },
+              { id: 'TORNADO', label: 'Tornado Graph', icon: SlidersHorizontal, tip: 'Bidirectional diverging butterfly graph comparing SMT vs Blazor' },
               { id: 'DELTA', label: 'Variance Δ', icon: Activity, tip: 'Direct period-by-period delta discrepancy bar chart' },
               { id: 'PARITY', label: 'Parity (y=x)', icon: Sparkles, tip: '45-degree parity plot assessing model calibration agreement' },
             ] as const
           ).map((m) => {
             const Icon = m.icon;
+            const isSelected = globalChartMode === m.id;
             return (
               <Tooltip key={m.id} content={m.tip}>
                 <button
@@ -578,10 +873,13 @@ function extractMetricValue(row: Record<string, any>, prefix: 'smt' | 'blazor', 
                   style={{
                     padding: '6px 12px',
                     fontSize: '12px',
-                    backgroundColor: chartMode === m.id ? '#0d9488' : '#ffffff',
-                    color: chartMode === m.id ? '#ffffff' : '#0f172a',
+                    backgroundColor: isSelected ? '#0d9488' : '#ffffff',
+                    color: isSelected ? '#ffffff' : '#0f172a',
                   }}
-                  onClick={() => setChartMode(m.id)}
+                  onClick={() => {
+                    setGlobalChartMode(m.id);
+                    setPerGraphModes({}); // reset individual overrides to align with global
+                  }}
                 >
                   <Icon size={14} />
                   {m.label}
@@ -589,6 +887,24 @@ function extractMetricValue(row: Record<string, any>, prefix: 'smt' | 'blazor', 
               </Tooltip>
             );
           })}
+
+          {/* Export All Graphs PDF Report Button */}
+          <div style={{ marginLeft: '4px' }}>
+            <Tooltip content="Export comprehensive multi-page PDF calibration report containing all 7 target metric graphs.">
+              <button
+                className="cg-btn cg-btn-primary"
+                style={{
+                  padding: '6px 14px',
+                  fontSize: '12px',
+                }}
+                disabled={isExportingAll}
+                onClick={handleExportAllPdf}
+              >
+                <Download size={14} />
+                {isExportingAll ? 'Generating PDF...' : 'Export All PDF Report'}
+              </button>
+            </Tooltip>
+          </div>
         </div>
       </div>
 

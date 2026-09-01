@@ -389,12 +389,21 @@ When files are dropped simultaneously onto the upload canvas, `detectDatasetRole
 - `detectDatasetRole(file, headers, rows)`: Classifies dataset role (`smt` vs `blazor`).
 - `TARGET_METRICS`: Comprehensive configuration array for all 7 metrics with aliases and palette colors.
 
+### `src/services/graphExport.ts`
+- `exportGraphAsPng`: High-resolution canvas PNG export with title header, period metadata, and KPI summary bar.
+- `exportGraphAsPdf`: Landscape A4 publication-grade PDF report generation per metric with statistical summary cards.
+- `exportAllGraphsAsPdf`: Multi-page consolidated PDF report generation covering all 7 calibration metrics.
+
 ### `src/components/CalibrationGraphs.tsx`
-- Renders 4 chart modes:
-  - **Grouped Bar**: Side-by-side period comparisons.
+- Renders 5 distinct analytical chart modes:
+  - **Grouped Bar**: Side-by-side period comparisons (SMT vs Blazor).
   - **Trend Line**: Trajectory curves over periods with shaded area fills.
+  - **Tornado Graph**: Bidirectional horizontal diverging butterfly chart comparing SMT (left) vs Blazor (right) centered at zero.
   - **Variance $\Delta$**: Color-coded delta bars (green for positive, red for negative).
   - **45° Parity ($y = x$)**: Scatter plot with $R^2$ goodness-of-fit indicator.
+- Global and per-graph view mode switchers.
+- Individual **PNG** and **PDF** export buttons on every graph card.
+- **Export All PDF Report** button for 1-click generation of the full multi-page report.
 - Mini KPI cards for SMT Total, Blazor Total, Net Variance $\Delta$, and Variance $\%$.
 - Single metric focus filter tabs + "All 7 Graphs View".
 
