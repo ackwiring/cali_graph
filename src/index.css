@@ -62,14 +62,12 @@ body {
   background-color: var(--bg-overlay);
   border: 2px solid var(--border-black);
   border-radius: 12px;
-  box-shadow: 3px 3px 0px rgba(0, 0, 0, 0.9);
 }
 
 .cg-card {
   background-color: var(--bg-overlay-card);
   border: 2px solid var(--border-black);
   border-radius: 10px;
-  box-shadow: 2px 2px 0px rgba(0, 0, 0, 0.85);
 }
 
 .cg-title {

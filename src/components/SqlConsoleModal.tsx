@@ -1,14 +1,19 @@
 import React, { useState } from 'react';
-import { X, Play, Terminal, Clock, Copy, Check, Table } from 'lucide-react';
+import { X, Play, Terminal, Clock, Copy, Check, Table, Sparkles } from 'lucide-react';
 import { executeSql, QueryResult } from '../services/db';
 import { Tooltip } from './Tooltip';
 
 interface SqlConsoleModalProps {
   isOpen: boolean;
   onClose: () => void;
+  onApplyToCalibration?: (rows: Record<string, any>[], sql: string) => void;
 }
 
-export const SqlConsoleModal: React.FC<SqlConsoleModalProps> = ({ isOpen, onClose }) => {
+export const SqlConsoleModal: React.FC<SqlConsoleModalProps> = ({
+  isOpen,
+  onClose,
+  onApplyToCalibration,
+}) => {
   const [sql, setSql] = useState<string>(`-- PostgreSQL 16 Interactive Query Console
 SELECT 
   s.period,
@@ -40,6 +45,49 @@ LIMIT 20;`);
   };
 
   const PRESETS = [
+    {
+      name: 'Decoder Calibration Join (SMT vs Blasor)',
+      query: `SELECT 
+    CAST(b.raw_data->>'Row Labels' AS INTEGER) AS period,
+    s.raw_data->>'CASE_ID' AS case_id,
+    
+    -- 1. Crusher Haul (Converted from Mwmt to Wet Tonnes)
+    ROUND(CAST(s.raw_data->>'Sent to MinistersNorth_Crusher:rom_wmt (Mwmt)' AS NUMERIC) * 1000000.0, 2) AS smt_crusher,
+    ROUND(CAST(b.raw_data->>'Sum of Crusher_Haul_Wet_Tonnes' AS NUMERIC), 2) AS blz_crusher,
+    ROUND(CAST(b.raw_data->>'Sum of Crusher_Haul_Wet_Tonnes' AS NUMERIC) - (CAST(s.raw_data->>'Sent to MinistersNorth_Crusher:rom_wmt (Mwmt)' AS NUMERIC) * 1000000.0), 2) AS delta_crusher,
+    
+    -- 2. Waste Haul (Converted from Mwmt to Wet Tonnes)
+    ROUND(CAST(s.raw_data->>'Sent to MinistersNorth_Waste:rom_wmt (Mwmt)' AS NUMERIC) * 1000000.0, 2) AS smt_waste,
+    ROUND(CAST(b.raw_data->>'Sum of Waste_Haul_Wet_Tonnes' AS NUMERIC), 2) AS blz_waste,
+    ROUND(CAST(b.raw_data->>'Sum of Waste_Haul_Wet_Tonnes' AS NUMERIC) - (CAST(s.raw_data->>'Sent to MinistersNorth_Waste:rom_wmt (Mwmt)' AS NUMERIC) * 1000000.0), 2) AS delta_waste,
+
+    -- 3. Total ExPit Haul (Converted from Mwmt to Wet Tonnes)
+    ROUND(CAST(s.raw_data->>'Sent to MinistersNorth_ExPit:rom_wmt (Mwmt)' AS NUMERIC) * 1000000.0, 2) AS smt_expit,
+    ROUND(CAST(b.raw_data->>'Sum of Total_ExPit_Haul_Wet_Tonnes' AS NUMERIC), 2) AS blz_expit,
+    ROUND(CAST(b.raw_data->>'Sum of Total_ExPit_Haul_Wet_Tonnes' AS NUMERIC) - (CAST(s.raw_data->>'Sent to MinistersNorth_ExPit:rom_wmt (Mwmt)' AS NUMERIC) * 1000000.0), 2) AS delta_expit,
+
+    -- 5. From Stockpile
+    ROUND(CAST(s.raw_data->>'Sent to Total_from_SP:rom_wmt (Mwmt)' AS NUMERIC) * 1000000.0, 2) AS smt_from_stockpile,
+    ROUND(CAST(b.raw_data->>'Sum of From_Stockpile_Wet_Tonnes' AS NUMERIC), 2) AS blz_from_stockpile,
+    ROUND(CAST(b.raw_data->>'Sum of From_Stockpile_Wet_Tonnes' AS NUMERIC) - (CAST(s.raw_data->>'Sent to Total_from_SP:rom_wmt (Mwmt)' AS NUMERIC) * 1000000.0), 2) AS delta_from_stockpile,
+
+    -- 6. Conveyor MIN_CMN (Mapped to MinistersNorth_Crusher per decoder)
+    ROUND(CAST(s.raw_data->>'Sent to MinistersNorth_Crusher:rom_wmt (Mwmt)' AS NUMERIC) * 1000000.0, 2) AS smt_conveyor_min_cmn,
+    ROUND(CAST(b.raw_data->>'Sum of Conveyor from MIN_CMN' AS NUMERIC), 2) AS blz_conveyor_min_cmn,
+    ROUND(CAST(b.raw_data->>'Sum of Conveyor from MIN_CMN' AS NUMERIC) - (CAST(s.raw_data->>'Sent to MinistersNorth_Crusher:rom_wmt (Mwmt)' AS NUMERIC) * 1000000.0), 2) AS delta_conveyor_min_cmn,
+
+    -- 7. To Stockpile
+    ROUND(CAST(s.raw_data->>'Sent to Total_to_SP:rom_wmt (Mwmt)' AS NUMERIC) * 1000000.0, 2) AS smt_to_stockpile,
+    ROUND(CAST(b.raw_data->>'Sum of To_Stockpile_Wet_Tonnes' AS NUMERIC), 2) AS blz_to_stockpile,
+    ROUND(CAST(b.raw_data->>'Sum of To_Stockpile_Wet_Tonnes' AS NUMERIC) - (CAST(s.raw_data->>'Sent to Total_to_SP:rom_wmt (Mwmt)' AS NUMERIC) * 1000000.0), 2) AS delta_to_stockpile
+
+FROM blazor_data b
+INNER JOIN smt_data s
+    ON CAST(b.raw_data->>'Row Labels' AS INTEGER) = CAST(FLOOR(CAST(s.raw_data->>'Period Name' AS NUMERIC)) AS INTEGER)
+WHERE b.raw_data->>'Row Labels' NOT ILIKE '%Grand Total%'
+  AND s.raw_data->>'CASE_ID' = '270'
+ORDER BY period ASC;`,
+    },
     {
       name: 'SMT Data (First 50)',
       query: `SELECT * FROM smt_data LIMIT 50;`,
@@ -214,18 +262,36 @@ ORDER BY table_name, ordinal_position;`,
           </div>
 
           {/* Run Action Bar */}
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <Tooltip content="Execute SQL query against embedded in-browser PostgreSQL instance">
-              <button
-                className="cg-btn cg-btn-primary"
-                style={{ padding: '8px 18px', fontSize: '13px' }}
-                disabled={isExecuting || !sql.trim()}
-                onClick={handleRunQuery}
-              >
-                <Play size={15} />
-                {isExecuting ? 'Running Query...' : 'Execute SQL'}
-              </button>
-            </Tooltip>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
+            <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+              <Tooltip content="Execute SQL query against embedded in-browser PostgreSQL instance">
+                <button
+                  className="cg-btn cg-btn-primary"
+                  style={{ padding: '8px 18px', fontSize: '13px' }}
+                  disabled={isExecuting || !sql.trim()}
+                  onClick={handleRunQuery}
+                >
+                  <Play size={15} />
+                  {isExecuting ? 'Running Query...' : 'Execute SQL'}
+                </button>
+              </Tooltip>
+
+              {onApplyToCalibration && queryResult && !queryResult.error && queryResult.rows.length > 0 && (
+                <Tooltip content="Apply this SQL query and its calibrated rows to the main Calibration Graphs & Diff Inspector.">
+                  <button
+                    className="cg-btn cg-btn-teal"
+                    style={{ padding: '8px 16px', fontSize: '13px', backgroundColor: '#0d9488', color: '#ffffff' }}
+                    onClick={() => {
+                      onApplyToCalibration(queryResult.rows, sql);
+                      onClose();
+                    }}
+                  >
+                    <Sparkles size={15} />
+                    Apply Results to Calibration Graphs ({queryResult.rowCount} calibrated rows)
+                  </button>
+                </Tooltip>
+              )}
+            </div>
 
             {queryResult && (
               <div style={{ display: 'flex', alignItems: 'center', gap: '12px', fontSize: '12px', color: '#475569' }}>

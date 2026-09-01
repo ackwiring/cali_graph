@@ -7,23 +7,139 @@ interface DiffViewerProps {
   smtDataset: ParsedDataset | null;
   blazorDataset: ParsedDataset | null;
   joinKeys: string[];
+  joinedRows?: Record<string, any>[];
 }
 
 type DiffStatus = 'ALL' | 'DIFF_ONLY' | 'MATCH_ONLY' | 'SMT_ONLY' | 'BLAZOR_ONLY';
+
+function extractMetricValue(row: Record<string, any>, prefix: 'smt' | 'blazor', metricKey: string): number {
+  const shortAliases: Record<string, string[]> = {
+    crusher_haul_wet_tonnes: ['crusher_haul_wet_tonnes', 'crusher_haul', 'crusher', 'crusher_haul_wt'],
+    waste_haul_wet_tonnes: ['waste_haul_wet_tonnes', 'waste_haul', 'waste', 'waste_haul_wt'],
+    total_expit_haul_wet_tonnes: ['total_expit_haul_wet_tonnes', 'total_expit_haul', 'total_expit', 'expit_haul', 'expit', 'total_expit_haul_wt'],
+    expit_ore_wet_tonnes: ['expit_ore_wet_tonnes', 'expit_ore', 'ore_expit', 'expit_ore_wt'],
+    from_stockpile_wet_tonnes: ['from_stockpile_wet_tonnes', 'from_stockpile', 'from_sp', 'from_stockpile_wt'],
+    conveyor_from_min_cmn: ['conveyor_from_min_cmn', 'conveyor_min_cmn', 'conveyor', 'conveyor_from_min_cmn_wt'],
+    to_stockpile_wet_tonnes: ['to_stockpile_wet_tonnes', 'to_stockpile', 'to_sp', 'to_stockpile_wt'],
+  };
+
+  const prefixes = prefix === 'smt' ? ['smt_', 'smt'] : ['blazor_', 'blz_', 'blazor', 'blz'];
+  const aliases = shortAliases[metricKey] || [metricKey];
+
+  for (const p of prefixes) {
+    for (const a of aliases) {
+      const fullKey = `${p}${a}`;
+      if (row[fullKey] !== undefined && row[fullKey] !== null) {
+        return Number(row[fullKey]) || 0;
+      }
+    }
+  }
+
+  for (const k of Object.keys(row)) {
+    const kLow = k.toLowerCase();
+    for (const p of prefixes) {
+      if (kLow.startsWith(p)) {
+        for (const a of aliases) {
+          if (kLow.includes(a)) {
+            return Number(row[k]) || 0;
+          }
+        }
+      }
+    }
+  }
+
+  return 0;
+}
 
 export const DiffViewer: React.FC<DiffViewerProps> = ({
   smtDataset,
   blazorDataset,
   joinKeys,
+  joinedRows = [],
 }) => {
   const [filterStatus, setFilterStatus] = useState<DiffStatus>('ALL');
   const [searchQuery, setSearchQuery] = useState('');
   const [tolerancePct, setTolerancePct] = useState<number>(0.1); // 0.1% tolerance
-    const [page, setPage] = useState(1);
+  const [page, setPage] = useState(1);
   const pageSize = 25;
 
   // Build key-matched diff rows
   const { diffRows, stats, allComparedColumns } = useMemo(() => {
+    // If we have calibrated SQL joinedRows, build diff view directly from SQL results
+    if (joinedRows && joinedRows.length > 0) {
+      const firstRow = joinedRows[0];
+      const dimKey = Object.keys(firstRow).find(k => /period|year|label/i.test(k)) || Object.keys(firstRow)[0] || 'period';
+
+      const metricsToCompare = TARGET_METRICS.map((m) => ({
+        key: m.key,
+        name: m.shortName,
+      }));
+
+      let matches = 0;
+      let diffs = 0;
+
+      const rows = joinedRows.map((r, idx) => {
+        const keyVal = r[dimKey] !== undefined && r[dimKey] !== null ? String(r[dimKey]) : `Row ${idx + 1}`;
+        let hasSignificantDiff = false;
+        let maxPct = 0;
+        const metricDeltas: Record<string, { smtVal: number; blazorVal: number; delta: number; pctDiff: number; isDiff: boolean }> = {};
+
+        metricsToCompare.forEach((m) => {
+          const sVal = extractMetricValue(r, 'smt', m.key);
+          const bVal = extractMetricValue(r, 'blazor', m.key);
+          const delta = bVal - sVal;
+          const base = Math.max(Math.abs(sVal), Math.abs(bVal));
+          const pctDiff = base > 0 ? (Math.abs(delta) / base) * 100 : 0;
+          const isDiff = pctDiff > tolerancePct && Math.abs(delta) >= 1;
+
+          if (isDiff) hasSignificantDiff = true;
+          if (pctDiff > maxPct) maxPct = pctDiff;
+
+          metricDeltas[m.key] = {
+            smtVal: sVal,
+            blazorVal: bVal,
+            delta,
+            pctDiff,
+            isDiff,
+          };
+        });
+
+        if (hasSignificantDiff) {
+          diffs++;
+          return {
+            key: keyVal,
+            status: 'DIFF' as const,
+            smtRow: r,
+            blazorRow: r,
+            metricDeltas,
+            maxDeltaPct: maxPct,
+          };
+        } else {
+          matches++;
+          return {
+            key: keyVal,
+            status: 'MATCH' as const,
+            smtRow: r,
+            blazorRow: r,
+            metricDeltas,
+            maxDeltaPct: maxPct,
+          };
+        }
+      });
+
+      return {
+        diffRows: rows,
+        stats: {
+          total: joinedRows.length,
+          matches,
+          diffs,
+          smtOnly: 0,
+          blazorOnly: 0,
+        },
+        allComparedColumns: metricsToCompare,
+      };
+    }
+
     if (!smtDataset || !blazorDataset) {
       return { diffRows: [], stats: { total: 0, matches: 0, diffs: 0, smtOnly: 0, blazorOnly: 0 }, allComparedColumns: [] };
     }
@@ -103,8 +219,10 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({
       const metricDeltas: Record<string, { smtVal: number; blazorVal: number; delta: number; pctDiff: number; isDiff: boolean }> = {};
 
       metricsToCompare.forEach((m) => {
-        const sVal = Number(smtRow![m.smtCol!]) || 0;
-        const bVal = Number(blazorRow![m.blazorCol!]) || 0;
+        const sCol = (m as any).smtCol;
+        const bCol = (m as any).blazorCol;
+        const sVal = sCol ? Number(smtRow![sCol]) || 0 : 0;
+        const bVal = bCol ? Number(blazorRow![bCol]) || 0 : 0;
         const delta = bVal - sVal;
         const base = Math.max(Math.abs(sVal), Math.abs(bVal));
         const pctDiff = base > 0 ? (Math.abs(delta) / base) * 100 : 0;
@@ -156,7 +274,7 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({
       },
       allComparedColumns: metricsToCompare,
     };
-  }, [smtDataset, blazorDataset, joinKeys, tolerancePct]);
+  }, [smtDataset, blazorDataset, joinKeys, tolerancePct, joinedRows]);
 
   // Filtered rows
   const filteredRows = useMemo(() => {

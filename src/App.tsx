@@ -2,11 +2,11 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { Navbar } from './components/Navbar';
 import { DragDropCanvas } from './components/DragDropCanvas';
 import { DiffViewer } from './components/DiffViewer';
-import { JoinBuilder, JoinType } from './components/JoinBuilder';
+import { JoinBuilder } from './components/JoinBuilder';
 import { CalibrationGraphs } from './components/CalibrationGraphs';
 import { SqlConsoleModal } from './components/SqlConsoleModal';
-import { ParsedDataset, parseFile, TARGET_METRICS } from './services/fileParser';
-import { getDb, ingestTable, executeSql, sanitizeIdentifier } from './services/db';
+import { ParsedDataset, parseFile, detectDatasetRole } from './services/fileParser';
+import { getDb, ingestTable, executeSql, generateCalibrationSql, JoinType, JoinConfig } from './services/db';
 import { generateSampleDatasets } from './services/sampleData';
 
 export const App: React.FC = () => {
@@ -17,10 +17,11 @@ export const App: React.FC = () => {
   const [isJoinExecuting, setIsJoinExecuting] = useState<boolean>(false);
   const [isSqlConsoleOpen, setIsSqlConsoleOpen] = useState<boolean>(false);
 
-  const [joinConfig, setJoinConfig] = useState<{ joinType: JoinType; keys: string[]; groupBy: string }>({
+  const [joinConfig, setJoinConfig] = useState<JoinConfig>({
     joinType: 'INNER',
     keys: ['period'],
     groupBy: 'period',
+    caseId: '270',
   });
 
   const [joinedRows, setJoinedRows] = useState<Record<string, any>[]>([]);
@@ -37,42 +38,19 @@ export const App: React.FC = () => {
     async (
       smt: ParsedDataset | null,
       blz: ParsedDataset | null,
-      config: { joinType: JoinType; keys: string[]; groupBy: string }
+      config: JoinConfig
     ) => {
-      if (!smt || !blz || config.keys.length === 0) {
+      if (!smt || !blz) {
         setJoinedRows([]);
         return;
       }
 
       setIsJoinExecuting(true);
-
-      const joinConditions = config.keys.map((k) => `s."${k}" = b."${k}"`).join(' AND ');
-
-      const metricSelects = TARGET_METRICS.map((m) => {
-        const sCol = smt.detectedMetrics[m.key] ? sanitizeIdentifier(smt.detectedMetrics[m.key]) : null;
-        const bCol = blz.detectedMetrics[m.key] ? sanitizeIdentifier(blz.detectedMetrics[m.key]) : null;
-
-        const sSql = sCol ? `COALESCE(SUM(s."${sCol}"), 0)` : `0`;
-        const bSql = bCol ? `COALESCE(SUM(b."${bCol}"), 0)` : `0`;
-
-        return `${sSql} AS "smt_${m.key}", ${bSql} AS "blazor_${m.key}", (${bSql} - ${sSql}) AS "delta_${m.key}"`;
-      }).join(',\n  ');
-
-      const keySelects = config.keys.map((k) => `COALESCE(s."${k}", b."${k}") AS "${k}"`).join(',\n  ');
-      const groupClause = config.keys.map((k) => `COALESCE(s."${k}", b."${k}")`).join(', ');
-
-      const sql = `SELECT
-  ${keySelects},
-  ${metricSelects}
-FROM smt_data s
-${config.joinType} JOIN blazor_data b
-  ON ${joinConditions}
-GROUP BY ${groupClause}
-ORDER BY ${groupClause};`;
+      const sql = generateCalibrationSql(smt, blz, config);
 
       try {
         const res = await executeSql(sql);
-        if (!res.error && res.rows) {
+        if (!res.error && res.rows && res.rows.length > 0) {
           setJoinedRows(res.rows);
         } else {
           console.error('SQL Join error:', res.error);
@@ -86,37 +64,41 @@ ORDER BY ${groupClause};`;
     []
   );
 
-  // File Upload Handler
-  const handleFileUpload = async (file: File, target: 'smt' | 'blazor') => {
+  // Dynamic File Upload Handler (Auto-detects SMT vs Blasor role)
+  const handleFileUpload = async (filesOrFile: File | FileList | File[], explicitTarget?: 'smt' | 'blazor') => {
     setIsLoading(true);
     try {
-      const parsed = await parseFile(file);
-      const tableName = target === 'smt' ? 'smt_data' : 'blazor_data';
+      const fileList = filesOrFile instanceof File ? [filesOrFile] : Array.from(filesOrFile);
+      let currentSmt = smtDataset;
+      let currentBlazor = blazorDataset;
 
-      // Store in PostgreSQL database
-      await ingestTable(tableName, parsed.headers, parsed.rows);
+      for (const file of fileList) {
+        const parsed = await parseFile(file);
+        
+        // Dynamically determine dataset role based on content nomenclature
+        const detectedRole = detectDatasetRole(file, parsed.headers, parsed.rows);
+        const target = fileList.length > 1 ? detectedRole : (explicitTarget || detectedRole);
+        const tableName = target === 'smt' ? 'smt_data' : 'blazor_data';
 
-      if (target === 'smt') {
-        setSmtDataset(parsed);
-        if (blazorDataset) {
-          const keys = parsed.detectedKeys.filter((k) => blazorDataset.detectedKeys.includes(k));
-          const activeKeys = keys.length > 0 ? [keys[0]] : ['period'];
-          const newConfig = { ...joinConfig, keys: activeKeys, groupBy: activeKeys[0] };
-          setJoinConfig(newConfig);
-          await runJoinQuery(parsed, blazorDataset, newConfig);
-        }
-      } else {
-        setBlazorDataset(parsed);
-        if (smtDataset) {
-          const keys = smtDataset.detectedKeys.filter((k) => parsed.detectedKeys.includes(k));
-          const activeKeys = keys.length > 0 ? [keys[0]] : ['period'];
-          const newConfig = { ...joinConfig, keys: activeKeys, groupBy: activeKeys[0] };
-          setJoinConfig(newConfig);
-          await runJoinQuery(smtDataset, parsed, newConfig);
+        // Ingest into PostgreSQL database
+        await ingestTable(tableName, parsed.headers, parsed.rows);
+
+        if (target === 'smt') {
+          currentSmt = parsed;
+          setSmtDataset(parsed);
+        } else {
+          currentBlazor = parsed;
+          setBlazorDataset(parsed);
         }
       }
+
+      if (currentSmt && currentBlazor) {
+        const newConfig = { ...joinConfig, caseId: '270' };
+        setJoinConfig(newConfig);
+        await runJoinQuery(currentSmt, currentBlazor, newConfig);
+      }
     } catch (err: any) {
-      alert(`Error parsing file: ${err.message || err}`);
+      alert(`Error parsing file(s): ${err.message || err}`);
     } finally {
       setIsLoading(false);
     }
@@ -139,6 +121,7 @@ ORDER BY ${groupClause};`;
         joinType: 'INNER' as JoinType,
         keys: ['period'],
         groupBy: 'period',
+        caseId: '270',
       };
       setJoinConfig(sampleConfig);
       await runJoinQuery(smt, blz, sampleConfig);
@@ -153,7 +136,7 @@ ORDER BY ${groupClause};`;
   const handleClearDataset = async (target: 'smt' | 'blazor') => {
     const tableName = target === 'smt' ? 'smt_data' : 'blazor_data';
     const db = await getDb();
-    await db.exec(`DROP TABLE IF EXISTS ${tableName};`);
+    await db.exec(`TRUNCATE TABLE ${tableName};`);
 
     if (target === 'smt') {
       setSmtDataset(null);
@@ -166,7 +149,7 @@ ORDER BY ${groupClause};`;
   // Reset All Datasets
   const handleResetAll = async () => {
     const db = await getDb();
-    await db.exec(`DROP TABLE IF EXISTS smt_data; DROP TABLE IF EXISTS blazor_data;`);
+    await db.exec(`TRUNCATE TABLE smt_data; TRUNCATE TABLE blazor_data;`);
     setSmtDataset(null);
     setBlazorDataset(null);
     setJoinedRows([]);
@@ -174,11 +157,33 @@ ORDER BY ${groupClause};`;
 
   // Custom Join Execution Handler
   const handleExecuteJoin = async (
-    _sql: string,
-    config: { joinType: JoinType; keys: string[]; groupBy: string }
+    sql: string,
+    config: JoinConfig
   ) => {
+    setIsJoinExecuting(true);
     setJoinConfig(config);
-    await runJoinQuery(smtDataset, blazorDataset, config);
+    try {
+      const res = await executeSql(sql);
+      if (!res.error && res.rows && res.rows.length > 0) {
+        setJoinedRows(res.rows);
+      } else {
+        await runJoinQuery(smtDataset, blazorDataset, config);
+      }
+    } catch (e) {
+      await runJoinQuery(smtDataset, blazorDataset, config);
+    } finally {
+      setIsJoinExecuting(false);
+    }
+  };
+
+  // Handle SQL Console Results Applied to Dashboard
+  const handleApplyFromSqlConsole = (rows: Record<string, any>[], _sql: string) => {
+    if (rows && rows.length > 0) {
+      setJoinedRows(rows);
+      const firstRow = rows[0];
+      const dimKey = Object.keys(firstRow).find((k) => /period|year|label/i.test(k)) || Object.keys(firstRow)[0] || 'period';
+      setJoinConfig((prev) => ({ ...prev, groupBy: dimKey }));
+    }
   };
 
   // Export Joined Dataset CSV
@@ -246,6 +251,7 @@ ORDER BY ${groupClause};`;
           smtDataset={smtDataset}
           blazorDataset={blazorDataset}
           joinKeys={joinConfig.keys}
+          joinedRows={joinedRows}
         />
 
         {/* Calibration Graphs for all 7 Target Metrics */}
@@ -259,6 +265,7 @@ ORDER BY ${groupClause};`;
       <SqlConsoleModal
         isOpen={isSqlConsoleOpen}
         onClose={() => setIsSqlConsoleOpen(false)}
+        onApplyToCalibration={handleApplyFromSqlConsole}
       />
     </div>
   );

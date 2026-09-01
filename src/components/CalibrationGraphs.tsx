@@ -64,20 +64,63 @@ export const CalibrationGraphs: React.FC<CalibrationGraphsProps> = ({
     );
   }
 
+function extractMetricValue(row: Record<string, any>, prefix: 'smt' | 'blazor', metricKey: string): number {
+  const shortAliases: Record<string, string[]> = {
+    crusher_haul_wet_tonnes: ['crusher_haul_wet_tonnes', 'crusher_haul', 'crusher', 'crusher_haul_wt'],
+    waste_haul_wet_tonnes: ['waste_haul_wet_tonnes', 'waste_haul', 'waste', 'waste_haul_wt'],
+    total_expit_haul_wet_tonnes: ['total_expit_haul_wet_tonnes', 'total_expit_haul', 'total_expit', 'expit_haul', 'expit', 'total_expit_haul_wt'],
+    expit_ore_wet_tonnes: ['expit_ore_wet_tonnes', 'expit_ore', 'ore_expit', 'expit_ore_wt'],
+    from_stockpile_wet_tonnes: ['from_stockpile_wet_tonnes', 'from_stockpile', 'from_sp', 'from_stockpile_wt'],
+    conveyor_from_min_cmn: ['conveyor_from_min_cmn', 'conveyor_min_cmn', 'conveyor', 'conveyor_from_min_cmn_wt'],
+    to_stockpile_wet_tonnes: ['to_stockpile_wet_tonnes', 'to_stockpile', 'to_sp', 'to_stockpile_wt'],
+  };
+
+  const prefixes = prefix === 'smt' ? ['smt_', 'smt'] : ['blazor_', 'blz_', 'blazor', 'blz'];
+  const aliases = shortAliases[metricKey] || [metricKey];
+
+  for (const p of prefixes) {
+    for (const a of aliases) {
+      const fullKey = `${p}${a}`;
+      if (row[fullKey] !== undefined && row[fullKey] !== null) {
+        return Number(row[fullKey]) || 0;
+      }
+    }
+  }
+
+  // Case-insensitive check across row keys
+  for (const k of Object.keys(row)) {
+    const kLow = k.toLowerCase();
+    for (const p of prefixes) {
+      if (kLow.startsWith(p)) {
+        for (const a of aliases) {
+          if (kLow.includes(a)) {
+            return Number(row[k]) || 0;
+          }
+        }
+      }
+    }
+  }
+
+  return 0;
+}
+
   // Dimension labels
+  const firstRow = joinedRows[0] || {};
+  const dimKey =
+    joinDimensionKey in firstRow
+      ? joinDimensionKey
+      : Object.keys(firstRow).find((k) => /period|year|label/i.test(k)) || Object.keys(firstRow)[0] || 'period';
+
   const labels = joinedRows.map((r, i) => {
-    const val = r[joinDimensionKey];
-    return val !== undefined && val !== null ? `${joinDimensionKey.toUpperCase()} ${val}` : `Item ${i + 1}`;
+    const val = r[dimKey];
+    return val !== undefined && val !== null ? `${val}` : `Period ${i + 1}`;
   });
 
   // Calculate statistics for each metric
   const metricStats = TARGET_METRICS.map((metric) => {
-    const smtKey = `smt_${metric.key}`;
-    const blzKey = `blazor_${metric.key}`;
-
-    const smtValues = joinedRows.map((r) => Number(r[smtKey]) || 0);
-    const blzValues = joinedRows.map((r) => Number(r[blzKey]) || 0);
-    const deltas = joinedRows.map((r) => (Number(r[blzKey]) || 0) - (Number(r[smtKey]) || 0));
+    const smtValues = joinedRows.map((r) => extractMetricValue(r, 'smt', metric.key));
+    const blzValues = joinedRows.map((r) => extractMetricValue(r, 'blazor', metric.key));
+    const deltas = joinedRows.map((_, idx) => blzValues[idx] - smtValues[idx]);
 
     const totalSmt = smtValues.reduce((a, b) => a + b, 0);
     const totalBlz = blzValues.reduce((a, b) => a + b, 0);
@@ -99,7 +142,7 @@ export const CalibrationGraphs: React.FC<CalibrationGraphsProps> = ({
         denS += ds * ds;
         denB += db * db;
       }
-      const r = (denS > 0 && denB > 0) ? num / Math.sqrt(denS * denB) : 1;
+      const r = denS > 0 && denB > 0 ? num / Math.sqrt(denS * denB) : 1;
       rSquared = Math.max(0, Math.min(1, r * r));
     }
 

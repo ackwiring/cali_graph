@@ -1,15 +1,13 @@
 import React, { useState, useEffect } from 'react';
-import { GitMerge, Play, Code, Check } from 'lucide-react';
-import { ParsedDataset, TARGET_METRICS } from '../services/fileParser';
+import { GitMerge, Play, Code, Check, Layers } from 'lucide-react';
+import { ParsedDataset } from '../services/fileParser';
 import { Tooltip } from './Tooltip';
-import { sanitizeIdentifier } from '../services/db';
-
-export type JoinType = 'INNER' | 'LEFT' | 'RIGHT' | 'FULL OUTER';
+import { sanitizeIdentifier, generateCalibrationSql, JoinType, JoinConfig } from '../services/db';
 
 interface JoinBuilderProps {
   smtDataset: ParsedDataset | null;
   blazorDataset: ParsedDataset | null;
-  onExecuteJoin: (sql: string, joinConfig: { joinType: JoinType; keys: string[]; groupBy: string }) => Promise<void>;
+  onExecuteJoin: (sql: string, joinConfig: JoinConfig) => Promise<void>;
   isExecuting: boolean;
 }
 
@@ -20,8 +18,9 @@ export const JoinBuilder: React.FC<JoinBuilderProps> = ({
   isExecuting,
 }) => {
   const [joinType, setJoinType] = useState<JoinType>('INNER');
-  const [selectedKeys, setSelectedKeys] = useState<string[]>([]);
+  const [selectedKeys, setSelectedKeys] = useState<string[]>(['period']);
   const [groupByDim, setGroupByDim] = useState<string>('period');
+  const [caseId, setCaseId] = useState<string>('270');
   const [generatedSql, setGeneratedSql] = useState<string>('');
   const [showSqlEditor, setShowSqlEditor] = useState<boolean>(false);
 
@@ -35,6 +34,15 @@ export const JoinBuilder: React.FC<JoinBuilderProps> = ({
     return smtClean.filter((s) => blzCleanNames.has(s.clean)).map((s) => s.clean);
   }, [smtDataset, blazorDataset]);
 
+  // Available Cases in SMT
+  const availableCases = React.useMemo(() => {
+    if (!smtDataset) return ['270', '269'];
+    const caseCol = smtDataset.headers.find((h) => /^case(_id)?$/i.test(h));
+    if (!caseCol) return ['270', '269'];
+    const cases = Array.from(new Set(smtDataset.rows.map((r) => String(r[caseCol] || '').trim()).filter(Boolean)));
+    return cases.length > 0 ? cases : ['270', '269'];
+  }, [smtDataset]);
+
   // Set initial default keys when datasets load
   useEffect(() => {
     if (commonKeys.length > 0 && selectedKeys.length === 0) {
@@ -47,45 +55,25 @@ export const JoinBuilder: React.FC<JoinBuilderProps> = ({
 
   // Generate PostgreSQL JOIN statement dynamically
   useEffect(() => {
-    if (!smtDataset || !blazorDataset || selectedKeys.length === 0) {
-      setGeneratedSql('-- Upload both SMT and Blazor datasets and select join keys to build SQL query');
+    if (!smtDataset || !blazorDataset) {
+      setGeneratedSql('-- Upload both SMT and Blazor datasets to build SQL query');
       return;
     }
 
-    const joinConditions = selectedKeys
-      .map((k) => `s."${k}" = b."${k}"`)
-      .join(' AND ');
-
-    // Metrics SELECT clauses
-    const metricSelects = TARGET_METRICS.map((m) => {
-      const sCol = smtDataset.detectedMetrics[m.key] ? sanitizeIdentifier(smtDataset.detectedMetrics[m.key]) : null;
-      const bCol = blazorDataset.detectedMetrics[m.key] ? sanitizeIdentifier(blazorDataset.detectedMetrics[m.key]) : null;
-
-      const sSql = sCol ? `COALESCE(SUM(s."${sCol}"), 0)` : `0`;
-      const bSql = bCol ? `COALESCE(SUM(b."${bCol}"), 0)` : `0`;
-
-      return `  -- ${m.canonicalName}\n  ${sSql} AS "smt_${m.key}",\n  ${bSql} AS "blazor_${m.key}",\n  (${bSql} - ${sSql}) AS "delta_${m.key}"`;
-    }).join(',\n');
-
-    const keySelects = selectedKeys.map((k) => `COALESCE(s."${k}", b."${k}") AS "${k}"`).join(',\n  ');
-    const groupClause = selectedKeys.map((k) => `COALESCE(s."${k}", b."${k}")`).join(', ');
-
-    const sql = `SELECT
-  ${keySelects},
-${metricSelects}
-FROM smt_data s
-${joinType} JOIN blazor_data b
-  ON ${joinConditions}
-GROUP BY ${groupClause}
-ORDER BY ${groupClause};`;
+    const sql = generateCalibrationSql(smtDataset, blazorDataset, {
+      joinType,
+      keys: selectedKeys,
+      groupBy: groupByDim,
+      caseId,
+    });
 
     setGeneratedSql(sql);
-  }, [smtDataset, blazorDataset, joinType, selectedKeys, groupByDim]);
+  }, [smtDataset, blazorDataset, joinType, selectedKeys, groupByDim, caseId]);
 
   const handleKeyToggle = (key: string) => {
     setSelectedKeys((prev) => {
       if (prev.includes(key)) {
-        if (prev.length === 1) return prev; // Keep at least one
+        if (prev.length === 1) return prev;
         return prev.filter((k) => k !== key);
       } else {
         return [...prev, key];
@@ -98,6 +86,7 @@ ORDER BY ${groupClause};`;
       joinType,
       keys: selectedKeys,
       groupBy: groupByDim,
+      caseId,
     });
   };
 
@@ -186,34 +175,74 @@ ORDER BY ${groupClause};`;
           </div>
         </div>
 
-        {/* 2. Key Dimensions */}
+        {/* 2. Case / Scenario Filter */}
+        {availableCases.length > 0 && (
+          <div className="cg-card" style={{ padding: '14px', backgroundColor: '#ffffff' }}>
+            <div style={{ fontSize: '12px', fontWeight: 700, color: '#0f172a', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <Layers size={14} color="#2563eb" />
+              2. SMT CASE_ID / SCENARIO:
+            </div>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+              {availableCases.map((c) => {
+                const isSelected = caseId === c;
+                const label = c === '270' ? 'Case 270 (Rows 17-31)' : c === '269' ? 'Case 269 (Rows 2-16)' : `Case ${c}`;
+                return (
+                  <Tooltip key={c} content={`Filter SMT schedule dataset for CASE_ID = '${c}'`}>
+                    <button
+                      className="cg-btn"
+                      style={{
+                        padding: '6px 12px',
+                        fontSize: '11px',
+                        fontWeight: isSelected ? 700 : 500,
+                        backgroundColor: isSelected ? '#2563eb' : '#f1f5f9',
+                        color: isSelected ? '#ffffff' : '#0f172a',
+                      }}
+                      onClick={() => setCaseId(c)}
+                    >
+                      {isSelected && <Check size={12} />}
+                      {label}
+                    </button>
+                  </Tooltip>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* 3. Key Dimensions */}
         <div className="cg-card" style={{ padding: '14px', backgroundColor: '#ffffff' }}>
           <div style={{ fontSize: '12px', fontWeight: 700, color: '#0f172a', marginBottom: '8px' }}>
-            2. JOIN KEY COLUMNS (COMPOSITE KEYS):
+            3. JOIN KEY COLUMNS:
           </div>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
-            {commonKeys.map((key) => {
-              const isSelected = selectedKeys.includes(key);
-              return (
-                <Tooltip key={key} content={`Join on column '${key}' (ON s."${key}" = b."${key}")`}>
-                  <button
-                    className="cg-btn"
-                    style={{
-                      padding: '5px 10px',
-                      fontSize: '11px',
-                      fontFamily: 'monospace',
-                      backgroundColor: isSelected ? '#ea580c' : '#f1f5f9',
-                      color: isSelected ? '#ffffff' : '#0f172a',
-                      fontWeight: isSelected ? 700 : 500,
-                    }}
-                    onClick={() => handleKeyToggle(key)}
-                  >
-                    {isSelected && <Check size={12} />}
-                    {key}
-                  </button>
-                </Tooltip>
-              );
-            })}
+            {commonKeys.length > 0 ? (
+              commonKeys.map((key) => {
+                const isSelected = selectedKeys.includes(key);
+                return (
+                  <Tooltip key={key} content={`Join on column '${key}' (ON s."${key}" = b."${key}")`}>
+                    <button
+                      className="cg-btn"
+                      style={{
+                        padding: '5px 10px',
+                        fontSize: '11px',
+                        fontFamily: 'monospace',
+                        backgroundColor: isSelected ? '#ea580c' : '#f1f5f9',
+                        color: isSelected ? '#ffffff' : '#0f172a',
+                        fontWeight: isSelected ? 700 : 500,
+                      }}
+                      onClick={() => handleKeyToggle(key)}
+                    >
+                      {isSelected && <Check size={12} />}
+                      {key}
+                    </button>
+                  </Tooltip>
+                );
+              })
+            ) : (
+              <span style={{ fontSize: '11px', color: '#64748b', fontStyle: 'italic' }}>
+                Auto-detected Period / Row Labels decoder mapping active
+              </span>
+            )}
           </div>
         </div>
 
@@ -258,7 +287,7 @@ ORDER BY ${groupClause};`;
         </div>
       </div>
 
-      {/* SQL Code Preview (Collapsible) */}
+      {/* SQL Code Preview (Collapsible & Editable) */}
       {showSqlEditor && (
         <div
           style={{
@@ -271,14 +300,39 @@ ORDER BY ${groupClause};`;
             fontFamily: 'Consolas, monospace',
             fontSize: '12px',
             lineHeight: 1.5,
-            overflowX: 'auto',
           }}
         >
-          <div style={{ display: 'flex', justifyContent: 'space-between', color: '#94a3b8', marginBottom: '6px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', color: '#94a3b8', marginBottom: '8px' }}>
             <span>-- PostgreSQL Executable SQL Query (PGlite WASM)</span>
-            <span style={{ color: '#0d9488' }}>Standard PostgreSQL 16</span>
+            <div style={{ display: 'flex', gap: '8px' }}>
+              <Tooltip content="Execute this exact SQL query directly against the database to generate graphs">
+                <button
+                  className="cg-btn cg-btn-teal"
+                  style={{ padding: '4px 10px', fontSize: '11px' }}
+                  onClick={handleExecute}
+                >
+                  <Play size={12} />
+                  Execute This SQL
+                </button>
+              </Tooltip>
+            </div>
           </div>
-          <pre style={{ margin: 0, whiteSpace: 'pre-wrap', color: '#f8fafc' }}>{generatedSql}</pre>
+          <textarea
+            value={generatedSql}
+            onChange={(e) => setGeneratedSql(e.target.value)}
+            rows={10}
+            style={{
+              width: '100%',
+              backgroundColor: '#090d16',
+              color: '#38bdf8',
+              fontFamily: 'Consolas, monospace',
+              fontSize: '12px',
+              lineHeight: 1.4,
+              border: '1px solid #334155',
+              borderRadius: '6px',
+              padding: '10px',
+            }}
+          />
         </div>
       )}
     </section>

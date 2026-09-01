@@ -1,4 +1,14 @@
 import { PGlite } from '@electric-sql/pglite';
+import { ParsedDataset, TARGET_METRICS } from './fileParser';
+
+export type JoinType = 'INNER' | 'LEFT' | 'RIGHT' | 'FULL OUTER';
+
+export interface JoinConfig {
+  joinType: JoinType;
+  keys: string[];
+  groupBy: string;
+  caseId?: string;
+}
 
 export interface ColumnInfo {
   name: string;
@@ -28,6 +38,16 @@ export async function getDb(): Promise<PGlite> {
         value TEXT,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );
+      CREATE TABLE IF NOT EXISTS smt_data (
+        id SERIAL PRIMARY KEY,
+        period INTEGER,
+        raw_data JSONB
+      );
+      CREATE TABLE IF NOT EXISTS blazor_data (
+        id SERIAL PRIMARY KEY,
+        period INTEGER,
+        raw_data JSONB
+      );
     `);
   }
   return dbInstance;
@@ -35,15 +55,20 @@ export async function getDb(): Promise<PGlite> {
 
 /**
  * Sanitize SQL identifier (column or table name)
+ * Ensures compliance with PostgreSQL 63-byte identifier limit (NAMEDATALEN = 64)
  */
 export function sanitizeIdentifier(name: string): string {
-  // Replace spaces, hyphens, parentheses, etc. with underscores and lowercase
-  let clean = name.trim().toLowerCase().replace(/[^a-z0-9_]/g, '_');
-  // Avoid leading numbers or reserved words
+  let clean = name.trim().toLowerCase().replace(/[^a-z0-9_]/g, '_').replace(/_+/g, '_').replace(/^_|_$/g, '');
   if (/^[0-9]/.test(clean)) {
     clean = 'col_' + clean;
   }
-  return clean || 'col';
+  if (!clean) {
+    clean = 'col';
+  }
+  if (clean.length > 55) {
+    clean = clean.substring(0, 55);
+  }
+  return clean;
 }
 
 /**
@@ -76,6 +101,8 @@ function inferPostgresType(values: any[]): { type: string; isNumeric: boolean } 
 
 /**
  * Ingest parsed dataset into PostgreSQL table ('smt_data' or 'blazor_data')
+ * Gracefully handles ultra-wide datasets (>1,600 columns), 63-char identifier limits,
+ * and preserves 100% of original row data in a raw_data JSONB column.
  */
 export async function ingestTable(
   tableName: 'smt_data' | 'blazor_data',
@@ -91,42 +118,48 @@ export async function ingestTable(
     return { columns: [], rowCount: 0 };
   }
 
-  // Map and sanitize column names
-  const colMappings = headers.map((orig) => {
-    const clean = sanitizeIdentifier(orig);
+  // PostgreSQL has a hard architectural limit of at most 1,600 columns.
+  // We cap relational columns to a safe ceiling of 600, while preserving ALL columns in raw_data JSONB.
+  const MAX_RELATIONAL_COLS = 600;
+  const activeHeaders = headers.slice(0, MAX_RELATIONAL_COLS);
+
+  // Map and sanitize column names, guaranteeing uniqueness and <=63 char length
+  const seenIdentifiers = new Set<string>();
+  const colMappings = activeHeaders.map((orig) => {
+    let clean = sanitizeIdentifier(orig);
+    let uniqueClean = clean;
+    let suffix = 1;
+    while (seenIdentifiers.has(uniqueClean)) {
+      uniqueClean = `${clean.substring(0, 50)}_${suffix++}`;
+    }
+    seenIdentifiers.add(uniqueClean);
+
     const sampleValues = rows.slice(0, 100).map((r) => r[orig]);
     const { type, isNumeric } = inferPostgresType(sampleValues);
     return {
       original: orig,
-      clean,
+      clean: uniqueClean,
       type,
       isNumeric,
     };
   });
 
-  // Ensure uniqueness in sanitized column names
-  const seen = new Set<string>();
-  for (const col of colMappings) {
-    let base = col.clean;
-    let idx = 1;
-    while (seen.has(col.clean)) {
-      col.clean = `${base}_${idx++}`;
-    }
-    seen.add(col.clean);
-  }
-
-  // Create table schema
+  // Create table schema with raw_data JSONB column
   const colDefs = colMappings.map((c) => `"${c.clean}" ${c.type}`).join(',\n  ');
-  const createSql = `CREATE TABLE ${tableName} (\n  id SERIAL PRIMARY KEY,\n  ${colDefs}\n);`;
+  const createSql = `CREATE TABLE ${tableName} (\n  id SERIAL PRIMARY KEY,\n  raw_data JSONB,\n  ${colDefs}\n);`;
   await db.exec(createSql);
 
-  // Batch insert rows
-  const BATCH_SIZE = 500;
-  for (let i = 0; i < rows.length; i += BATCH_SIZE) {
-    const batch = rows.slice(i, i + BATCH_SIZE);
+  // Dynamically calculate batch size based on column count to avoid statement length & memory spikes
+  const dynamicBatchSize = Math.max(5, Math.min(250, Math.floor(4000 / Math.max(1, colMappings.length))));
+
+  for (let i = 0; i < rows.length; i += dynamicBatchSize) {
+    const batch = rows.slice(i, i + dynamicBatchSize);
     const valuesList: string[] = [];
 
     for (const row of batch) {
+      // Lossless JSON representation of the entire row
+      const jsonStr = JSON.stringify(row).replace(/'/g, "''");
+
       const rowVals = colMappings.map((c) => {
         const val = row[c.original];
         if (val === null || val === undefined || val === '') return 'NULL';
@@ -138,12 +171,13 @@ export async function ingestTable(
         const strVal = String(val).replace(/'/g, "''");
         return `'${strVal}'`;
       });
-      valuesList.push(`(${rowVals.join(', ')})`);
+
+      valuesList.push(`('${jsonStr}', ${rowVals.join(', ')})`);
     }
 
     if (valuesList.length > 0) {
       const colNames = colMappings.map((c) => `"${c.clean}"`).join(', ');
-      const insertSql = `INSERT INTO ${tableName} (${colNames}) VALUES \n${valuesList.join(',\n')};`;
+      const insertSql = `INSERT INTO ${tableName} (raw_data, ${colNames}) VALUES \n${valuesList.join(',\n')};`;
       await db.exec(insertSql);
     }
   }
@@ -218,4 +252,96 @@ export async function getTableStats(tableName: 'smt_data' | 'blazor_data'): Prom
   } catch {
     return { exists: false, count: 0, columns: [] };
   }
+}
+
+/**
+ * Generate PostgreSQL SQL query to join SMT and Blazor datasets
+ */
+export function generateCalibrationSql(
+  smtDataset: ParsedDataset | null,
+  blazorDataset: ParsedDataset | null,
+  config: JoinConfig
+): string {
+  if (!smtDataset || !blazorDataset) {
+    return '-- Upload both SMT and Blazor datasets to generate calibration SQL';
+  }
+
+  const isBhpSmt = smtDataset.headers.some((h) => /ministersnorth|period name|case_id/i.test(h));
+  const isBhpBlazor = blazorDataset.headers.some((h) => /row labels|sum of/i.test(h));
+
+  // If this is BHP Ministers North SMT vs Blasor Pivot
+  if (isBhpSmt || isBhpBlazor) {
+    const caseId = config.caseId || '270';
+    return `SELECT 
+    CAST(b.raw_data->>'Row Labels' AS INTEGER) AS period,
+    s.raw_data->>'CASE_ID' AS case_id,
+    
+    -- 1. Crusher Haul (Converted from Mwmt to Wet Tonnes)
+    ROUND(CAST(COALESCE(s.raw_data->>'Sent to MinistersNorth_Crusher:rom_wmt (Mwmt)', s.raw_data->>'Sent to MinistersNorth_Crusher:wmt (Mwmt)', '0') AS NUMERIC) * 1000000.0, 2) AS smt_crusher_haul_wet_tonnes,
+    ROUND(CAST(COALESCE(b.raw_data->>'Sum of Crusher_Haul_Wet_Tonnes', '0') AS NUMERIC), 2) AS blazor_crusher_haul_wet_tonnes,
+    ROUND(CAST(COALESCE(b.raw_data->>'Sum of Crusher_Haul_Wet_Tonnes', '0') AS NUMERIC) - (CAST(COALESCE(s.raw_data->>'Sent to MinistersNorth_Crusher:rom_wmt (Mwmt)', s.raw_data->>'Sent to MinistersNorth_Crusher:wmt (Mwmt)', '0') AS NUMERIC) * 1000000.0), 2) AS delta_crusher_haul_wet_tonnes,
+    
+    -- 2. Waste Haul (Converted from Mwmt to Wet Tonnes)
+    ROUND(CAST(COALESCE(s.raw_data->>'Sent to MinistersNorth_Waste:rom_wmt (Mwmt)', s.raw_data->>'Sent to MinistersNorth_Waste:wmt (Mwmt)', '0') AS NUMERIC) * 1000000.0, 2) AS smt_waste_haul_wet_tonnes,
+    ROUND(CAST(COALESCE(b.raw_data->>'Sum of Waste_Haul_Wet_Tonnes', '0') AS NUMERIC), 2) AS blazor_waste_haul_wet_tonnes,
+    ROUND(CAST(COALESCE(b.raw_data->>'Sum of Waste_Haul_Wet_Tonnes', '0') AS NUMERIC) - (CAST(COALESCE(s.raw_data->>'Sent to MinistersNorth_Waste:rom_wmt (Mwmt)', s.raw_data->>'Sent to MinistersNorth_Waste:wmt (Mwmt)', '0') AS NUMERIC) * 1000000.0), 2) AS delta_waste_haul_wet_tonnes,
+
+    -- 3. Total ExPit Haul (Converted from Mwmt to Wet Tonnes)
+    ROUND(CAST(COALESCE(s.raw_data->>'Sent to MinistersNorth_ExPit:rom_wmt (Mwmt)', s.raw_data->>'Sent to MinistersNorth_ExPit:wmt (Mwmt)', '0') AS NUMERIC) * 1000000.0, 2) AS smt_total_expit_haul_wet_tonnes,
+    ROUND(CAST(COALESCE(b.raw_data->>'Sum of Total_ExPit_Haul_Wet_Tonnes', '0') AS NUMERIC), 2) AS blazor_total_expit_haul_wet_tonnes,
+    ROUND(CAST(COALESCE(b.raw_data->>'Sum of Total_ExPit_Haul_Wet_Tonnes', '0') AS NUMERIC) - (CAST(COALESCE(s.raw_data->>'Sent to MinistersNorth_ExPit:rom_wmt (Mwmt)', s.raw_data->>'Sent to MinistersNorth_ExPit:wmt (Mwmt)', '0') AS NUMERIC) * 1000000.0), 2) AS delta_total_expit_haul_wet_tonnes,
+
+    -- 4. ExPit Ore (Wet Tonnes)
+    0.00 AS smt_expit_ore_wet_tonnes,
+    ROUND(CAST(COALESCE(b.raw_data->>'Sum of ExPit_Ore_Wet_Tonnes', '0') AS NUMERIC), 2) AS blazor_expit_ore_wet_tonnes,
+    ROUND(CAST(COALESCE(b.raw_data->>'Sum of ExPit_Ore_Wet_Tonnes', '0') AS NUMERIC), 2) AS delta_expit_ore_wet_tonnes,
+
+    -- 5. From Stockpile (Converted from Mwmt to Wet Tonnes)
+    ROUND(CAST(COALESCE(s.raw_data->>'Sent to Total_from_SP:rom_wmt (Mwmt)', '0') AS NUMERIC) * 1000000.0, 2) AS smt_from_stockpile_wet_tonnes,
+    ROUND(CAST(COALESCE(b.raw_data->>'Sum of From_Stockpile_Wet_Tonnes', '0') AS NUMERIC), 2) AS blazor_from_stockpile_wet_tonnes,
+    ROUND(CAST(COALESCE(b.raw_data->>'Sum of From_Stockpile_Wet_Tonnes', '0') AS NUMERIC) - (CAST(COALESCE(s.raw_data->>'Sent to Total_from_SP:rom_wmt (Mwmt)', '0') AS NUMERIC) * 1000000.0), 2) AS delta_from_stockpile_wet_tonnes,
+
+    -- 6. Conveyor MIN_CMN (Mapped to MinistersNorth_Crusher per decoder)
+    ROUND(CAST(COALESCE(s.raw_data->>'Sent to MinistersNorth_Crusher:rom_wmt (Mwmt)', s.raw_data->>'Sent to MinistersNorth_Crusher:wmt (Mwmt)', '0') AS NUMERIC) * 1000000.0, 2) AS smt_conveyor_from_min_cmn,
+    ROUND(CAST(COALESCE(b.raw_data->>'Sum of Conveyor from MIN_CMN', '0') AS NUMERIC), 2) AS blazor_conveyor_from_min_cmn,
+    ROUND(CAST(COALESCE(b.raw_data->>'Sum of Conveyor from MIN_CMN', '0') AS NUMERIC) - (CAST(COALESCE(s.raw_data->>'Sent to MinistersNorth_Crusher:rom_wmt (Mwmt)', s.raw_data->>'Sent to MinistersNorth_Crusher:wmt (Mwmt)', '0') AS NUMERIC) * 1000000.0), 2) AS delta_conveyor_from_min_cmn,
+
+    -- 7. To Stockpile (Converted from Mwmt to Wet Tonnes)
+    ROUND(CAST(COALESCE(s.raw_data->>'Sent to Total_to_SP:rom_wmt (Mwmt)', '0') AS NUMERIC) * 1000000.0, 2) AS smt_to_stockpile_wet_tonnes,
+    ROUND(CAST(COALESCE(b.raw_data->>'Sum of To_Stockpile_Wet_Tonnes', '0') AS NUMERIC), 2) AS blazor_to_stockpile_wet_tonnes,
+    ROUND(CAST(COALESCE(b.raw_data->>'Sum of To_Stockpile_Wet_Tonnes', '0') AS NUMERIC) - (CAST(COALESCE(s.raw_data->>'Sent to Total_to_SP:rom_wmt (Mwmt)', '0') AS NUMERIC) * 1000000.0), 2) AS delta_to_stockpile_wet_tonnes
+
+FROM blazor_data b
+${config.joinType} JOIN smt_data s
+    ON CAST(b.raw_data->>'Row Labels' AS INTEGER) = CAST(FLOOR(CAST(s.raw_data->>'Period Name' AS NUMERIC)) AS INTEGER)
+WHERE b.raw_data->>'Row Labels' NOT ILIKE '%Grand Total%'
+  AND s.raw_data->>'CASE_ID' = '${caseId}'
+ORDER BY period ASC;`;
+  }
+
+  // Standard generic join fallback
+  const keys = config.keys.length > 0 ? config.keys : ['period'];
+  const joinConditions = keys.map((k) => `s."${k}" = b."${k}"`).join(' AND ');
+
+  const metricSelects = TARGET_METRICS.map((m) => {
+    const sCol = smtDataset.detectedMetrics[m.key] ? sanitizeIdentifier(smtDataset.detectedMetrics[m.key]) : null;
+    const bCol = blazorDataset.detectedMetrics[m.key] ? sanitizeIdentifier(blazorDataset.detectedMetrics[m.key]) : null;
+
+    const sSql = sCol ? `COALESCE(SUM(s."${sCol}"), 0)` : `0`;
+    const bSql = bCol ? `COALESCE(SUM(b."${bCol}"), 0)` : `0`;
+
+    return `  -- ${m.canonicalName}\n  ${sSql} AS "smt_${m.key}",\n  ${bSql} AS "blazor_${m.key}",\n  (${bSql} - ${sSql}) AS "delta_${m.key}"`;
+  }).join(',\n');
+
+  const keySelects = keys.map((k) => `COALESCE(s."${k}", b."${k}") AS "${k}"`).join(',\n  ');
+  const groupClause = keys.map((k) => `COALESCE(s."${k}", b."${k}")`).join(', ');
+
+  return `SELECT
+  ${keySelects},
+${metricSelects}
+FROM smt_data s
+${config.joinType} JOIN blazor_data b
+  ON ${joinConditions}
+GROUP BY ${groupClause}
+ORDER BY ${groupClause};`;
 }

@@ -32,7 +32,6 @@ export const Navbar: React.FC<NavbarProps> = ({
         position: 'sticky',
         top: 0,
         zIndex: 50,
-        boxShadow: '0 2px 4px rgba(0,0,0,0.05)',
       }}
     >
       <div

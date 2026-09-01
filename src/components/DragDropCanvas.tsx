@@ -7,7 +7,7 @@ interface DragDropCanvasProps {
   smtDataset: ParsedDataset | null;
   blazorDataset: ParsedDataset | null;
   isLoading: boolean;
-  onFileUpload: (file: File, target: 'smt' | 'blazor') => Promise<void>;
+  onFileUpload: (file: File | FileList | File[], target?: 'smt' | 'blazor') => Promise<void>;
   onClearDataset: (target: 'smt' | 'blazor') => void;
 }
 
@@ -30,8 +30,7 @@ export const DragDropCanvas: React.FC<DragDropCanvasProps> = ({
     if (target === 'blazor') setIsDragOverBlazor(false);
 
     if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
-      const file = e.dataTransfer.files[0];
-      await onFileUpload(file, target);
+      await onFileUpload(e.dataTransfer.files, target);
     }
   };
 
@@ -84,12 +83,13 @@ export const DragDropCanvas: React.FC<DragDropCanvasProps> = ({
       >
         <input
           type="file"
+          multiple
           ref={inputRef as any}
           style={{ display: 'none' }}
           accept=".csv,.tsv,.txt,.xlsx,.xls,.xlsb,.json"
           onChange={async (e) => {
             if (e.target.files && e.target.files.length > 0) {
-              await onFileUpload(e.target.files[0], target);
+              await onFileUpload(e.target.files, target);
             }
           }}
         />
