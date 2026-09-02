@@ -303,17 +303,18 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({
           <h2
             className="cg-title"
             style={{
-              fontSize: '18px',
+              fontSize: '17px',
               margin: 0,
               display: 'flex',
               alignItems: 'center',
               gap: '8px',
+              color: '#f7901e',
             }}
           >
-            <Columns size={20} color="#ea580c" />
+            <Columns size={20} color="#f7901e" />
             SIDE-BY-SIDE FILE DIFF INSPECTOR (DFDIFF)
           </h2>
-          <p className="cg-subtitle" style={{ fontSize: '12px', margin: '2px 0 0 0' }}>
+          <p className="cg-subtitle" style={{ fontSize: '12px', margin: '2px 0 0 0', color: '#00a3a6' }}>
             Synchronized comparison of SMT Output ({smtDataset.rows.length} rows) vs. Blazor Composite ({blazorDataset.rows.length} rows)
           </p>
         </div>
@@ -437,9 +438,9 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({
                 style={{
                   padding: '5px 10px',
                   fontSize: '12px',
-                  backgroundColor: filterStatus === st.id ? '#0d9488' : '#ffffff',
+                  backgroundColor: filterStatus === st.id ? '#00a3a6' : '#ffffff',
                   color: filterStatus === st.id ? '#ffffff' : '#0f172a',
-                  borderColor: '#000000',
+                  borderColor: '#0f172a',
                 }}
                 onClick={() => {
                   setFilterStatus(st.id);

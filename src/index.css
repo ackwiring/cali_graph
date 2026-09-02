@@ -1,29 +1,42 @@
 /* ==========================================================================
-   CALIBRATION GRAPHER THEME STYLING
-   Rules:
+   QS CORPORATE REFORMATTING & THEME STYLING
+   Official Quantified Strategies Design Standards:
+   - Font: Inter ('Inter', sans-serif)
    - Background: Pure White (#ffffff)
-   - Overlay containers: Grey (#f1f5f9 / #e2e8f0 / #f8fafc)
-   - Borders: Rounded Black (2px solid #000000; border-radius: 10px / 12px)
-   - Titles: Orange font (#ea580c / #f97316)
-   - Subtitles: Teal font (#0d9488 / #14b8a6)
+   - Panels / Containers: Light Slate Grey (#f8fafc / #f1f5f9)
+   - Borders: Thin Slate Navy / Black (#0f172a / #000000; border-radius: 8px - 12px)
+   - Title / Highlight Accent: Corporate Orange (#f7901e)
+   - Subtitle / Indicator Accent: Corporate Teal (#00a3a6)
+   - Console Overlays: Dark Blue (#090d16) with Teal/Green status
    ========================================================================== */
 
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+
 :root {
+  --bg: #ffffff;
   --bg-primary: #ffffff;
-  --bg-overlay: #f3f4f6;
-  --bg-overlay-card: #f8fafc;
+  --bg-overlay: #f8fafc;
+  --bg-overlay-card: #f1f5f9;
   --bg-overlay-hover: #e2e8f0;
-  --border-black: #000000;
-  --title-orange: #ea580c;
-  --title-orange-dark: #c2410c;
-  --subtitle-teal: #0d9488;
-  --subtitle-teal-dark: #0f766e;
+  --border-black: #0f172a;
+  --border-navy: #0f172a;
+  --line: #0f172a;
+  --title-orange: #f7901e;
+  --title-orange-dark: #e07f15;
+  --subtitle-teal: #00a3a6;
+  --subtitle-teal-dark: #0d7e80;
+  --accent: #f7901e;
+  --accent-teal: #00a3a6;
   --text-dark: #0f172a;
+  --text: #0f172a;
   --text-muted: #475569;
+  --muted: #475569;
   --smt-blue: #2563eb;
   --blazor-purple: #9333ea;
   --diff-red: #dc2626;
   --diff-green: #16a34a;
+  --console-bg: #090d16;
+  --font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
 }
 
 * {
@@ -35,7 +48,7 @@ body {
   padding: 0;
   background-color: var(--bg-primary);
   color: var(--text-dark);
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  font-family: var(--font-family);
   -webkit-font-smoothing: antialiased;
 }
 
@@ -51,45 +64,51 @@ body {
 ::-webkit-scrollbar-thumb {
   background: #94a3b8;
   border-radius: 4px;
-  border: 1px solid #000000;
+  border: 1px solid #0f172a;
 }
 ::-webkit-scrollbar-thumb:hover {
   background: #64748b;
 }
 
-/* Standard Components */
+/* Standard Corporate Components */
 .cg-container {
   background-color: var(--bg-overlay);
-  border: 2px solid var(--border-black);
+  border: 1.5px solid var(--border-navy);
   border-radius: 12px;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04);
 }
 
 .cg-card {
   background-color: var(--bg-overlay-card);
-  border: 2px solid var(--border-black);
+  border: 1.5px solid var(--border-navy);
   border-radius: 10px;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.03);
 }
 
 .cg-title {
   color: var(--title-orange);
+  font-family: var(--font-family);
   font-weight: 800;
   letter-spacing: -0.02em;
 }
 
 .cg-subtitle {
   color: var(--subtitle-teal);
+  font-family: var(--font-family);
   font-weight: 600;
 }
 
+/* Buttons */
 .cg-btn {
   background-color: #ffffff;
   color: var(--text-dark);
-  border: 2px solid var(--border-black);
+  border: 1.5px solid var(--border-navy);
   border-radius: 8px;
+  font-family: var(--font-family);
   font-weight: 600;
   cursor: pointer;
   transition: all 0.15s ease-in-out;
-  box-shadow: 2px 2px 0px rgba(0, 0, 0, 0.85);
+  box-shadow: 2px 2px 0px rgba(15, 23, 42, 0.85);
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -97,45 +116,99 @@ body {
 
 .cg-btn:hover {
   background-color: var(--bg-overlay-hover);
+  border-color: var(--title-orange);
   transform: translate(-1px, -1px);
-  box-shadow: 3px 3px 0px rgba(0, 0, 0, 0.9);
+  box-shadow: 3px 3px 0px rgba(15, 23, 42, 0.9);
 }
 
 .cg-btn:active {
   transform: translate(1px, 1px);
-  box-shadow: 1px 1px 0px rgba(0, 0, 0, 0.9);
+  box-shadow: 1px 1px 0px rgba(15, 23, 42, 0.9);
 }
 
 .cg-btn-primary {
   background-color: var(--title-orange);
   color: #ffffff;
+  border-color: var(--border-navy);
 }
 .cg-btn-primary:hover {
   background-color: var(--title-orange-dark);
+  border-color: var(--border-navy);
 }
 
 .cg-btn-teal {
   background-color: var(--subtitle-teal);
   color: #ffffff;
+  border-color: var(--border-navy);
 }
 .cg-btn-teal:hover {
   background-color: var(--subtitle-teal-dark);
+  border-color: var(--border-navy);
 }
 
 .cg-input, .cg-select {
   background-color: #ffffff;
   color: var(--text-dark);
-  border: 2px solid var(--border-black);
+  border: 1.5px solid var(--border-navy);
   border-radius: 8px;
   padding: 8px 12px;
   font-size: 14px;
-  font-family: inherit;
-  box-shadow: 1px 1px 0px rgba(0,0,0,0.5);
+  font-family: var(--font-family);
+  box-shadow: 1px 1px 0px rgba(15, 23, 42, 0.4);
 }
 
 .cg-input:focus, .cg-select:focus {
   outline: none;
   border-color: var(--title-orange);
+  box-shadow: 0 0 0 2px rgba(247, 144, 30, 0.2);
+}
+
+/* QS Brand Elements */
+.qs-logo-img {
+  height: 34px;
+  width: auto;
+  object-fit: contain;
+  vertical-align: middle;
+  filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.05));
+}
+
+.q-navicon-badge {
+  width: 38px;
+  height: 38px;
+  border-radius: 9px;
+  border: 1.5px solid var(--border-navy);
+  background-color: #ffffff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  box-shadow: 2px 2px 0px var(--border-navy);
+  flex-shrink: 0;
+}
+
+.q-navicon-badge img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+/* Console Dark Blue for log metrics and parameters */
+.cg-console-dark {
+  background-color: var(--console-bg);
+  color: #ffffff;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  border: 1.5px solid var(--border-navy);
+  border-radius: 8px;
+  padding: 12px;
+}
+.cg-console-dark b, .cg-console-dark .key {
+  color: #38bdf8;
+}
+.cg-console-dark .val-good, .cg-console-dark .good {
+  color: #4ade80;
+}
+.cg-console-dark .val-bad, .cg-console-dark .bad {
+  color: #f87171;
 }
 
 /* Tooltip Custom styling */
@@ -147,9 +220,10 @@ body {
   padding: 8px 12px;
   border-radius: 8px;
   font-size: 12px;
+  font-family: var(--font-family);
   line-height: 1.4;
   max-width: 280px;
-  border: 1.5px solid #38bdf8;
+  border: 1.5px solid #00a3a6;
   box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.3);
   pointer-events: none;
   animation: fadeIn 0.15s ease-out;

@@ -1,6 +1,8 @@
 import React from 'react';
-import { Database, FileSpreadsheet, PlayCircle, RefreshCw, Terminal, Download, Sparkles } from 'lucide-react';
+import { FileSpreadsheet, PlayCircle, RefreshCw, Terminal, Download, Sparkles } from 'lucide-react';
 import { Tooltip } from './Tooltip';
+import qLogo from '../assets/q_logo.png';
+import qsLogo from '../assets/qs_logo.png';
 
 interface NavbarProps {
   smtCount: number;
@@ -27,11 +29,12 @@ export const Navbar: React.FC<NavbarProps> = ({
     <header
       style={{
         backgroundColor: '#ffffff',
-        borderBottom: '2px solid #000000',
-        padding: '14px 24px',
+        borderBottom: '1.5px solid #0f172a',
+        padding: '12px 24px',
         position: 'sticky',
         top: 0,
         zIndex: 50,
+        boxShadow: '0 1px 3px rgba(15, 23, 42, 0.05)',
       }}
     >
       <div
@@ -45,29 +48,16 @@ export const Navbar: React.FC<NavbarProps> = ({
           gap: '16px',
         }}
       >
-        {/* Title and Subtitle */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-          <div
-            style={{
-              width: '42px',
-              height: '42px',
-              backgroundColor: '#ea580c',
-              border: '2px solid #000000',
-              borderRadius: '10px',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              color: '#ffffff',
-              boxShadow: '2px 2px 0px #000000',
-            }}
-          >
-            <Database size={24} />
+        {/* Brand: Q Navicon, Title, and Subtitle */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+          <div className="q-navicon-badge" title="Quantified Strategies">
+            <img src={qLogo} alt="Q Navicon" />
           </div>
           <div>
             <h1
               className="cg-title"
               style={{
-                fontSize: '22px',
+                fontSize: '21px',
                 margin: 0,
                 lineHeight: 1.2,
                 display: 'flex',
@@ -75,37 +65,38 @@ export const Navbar: React.FC<NavbarProps> = ({
                 gap: '8px',
               }}
             >
-              CALIBRATION GRAPHER
+              QS CALIBRATION GRAPHER
               <span
                 style={{
                   fontSize: '11px',
-                  backgroundColor: '#0d9488',
+                  backgroundColor: '#00a3a6',
                   color: '#ffffff',
                   padding: '2px 8px',
                   borderRadius: '12px',
-                  border: '1.5px solid #000000',
+                  border: '1px solid #0f172a',
                   fontWeight: 700,
                   textTransform: 'uppercase',
-                  letterSpacing: '0.05em',
+                  letterSpacing: '0.04em',
                 }}
               >
-                PostgreSQL Engine
+                Phase Analyser
               </span>
             </h1>
             <div
               className="cg-subtitle"
               style={{
-                fontSize: '13px',
+                fontSize: '12.5px',
                 marginTop: '2px',
+                color: '#00a3a6',
               }}
             >
-              SMT Tool Output vs. Blazor Composite Mine Schedule Calibration
+              SMT Tool Output vs. Blazor Composite Phase Analyser & Calibration
             </div>
           </div>
         </div>
 
         {/* Database & Data Badges */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
           {/* DB Status Badge */}
           <Tooltip content="Embedded PostgreSQL 16 WebAssembly (PGlite) engine is active and ready in-memory / IndexedDB.">
             <div
@@ -113,9 +104,9 @@ export const Navbar: React.FC<NavbarProps> = ({
                 display: 'flex',
                 alignItems: 'center',
                 gap: '6px',
-                padding: '6px 12px',
-                backgroundColor: '#f1f5f9',
-                border: '2px solid #000000',
+                padding: '5px 12px',
+                backgroundColor: '#f8fafc',
+                border: '1.5px solid #0f172a',
                 borderRadius: '8px',
                 fontSize: '12px',
                 fontWeight: 600,
@@ -126,12 +117,12 @@ export const Navbar: React.FC<NavbarProps> = ({
                   width: '8px',
                   height: '8px',
                   borderRadius: '50%',
-                  backgroundColor: dbReady ? '#16a34a' : '#ea580c',
+                  backgroundColor: dbReady ? '#16a34a' : '#f7901e',
                   display: 'inline-block',
                 }}
               />
               <span style={{ color: '#0f172a' }}>PostgreSQL:</span>
-              <span style={{ color: '#0d9488' }}>{dbReady ? 'Online (PGlite)' : 'Initializing...'}</span>
+              <span style={{ color: '#00a3a6', fontWeight: 700 }}>{dbReady ? 'Online (PGlite)' : 'Initializing...'}</span>
             </div>
           </Tooltip>
 
@@ -142,9 +133,9 @@ export const Navbar: React.FC<NavbarProps> = ({
                 display: 'flex',
                 alignItems: 'center',
                 gap: '6px',
-                padding: '6px 12px',
+                padding: '5px 12px',
                 backgroundColor: smtCount > 0 ? '#eff6ff' : '#f8fafc',
-                border: '2px solid #000000',
+                border: '1.5px solid #0f172a',
                 borderRadius: '8px',
                 fontSize: '12px',
                 fontWeight: 600,
@@ -163,9 +154,9 @@ export const Navbar: React.FC<NavbarProps> = ({
                 display: 'flex',
                 alignItems: 'center',
                 gap: '6px',
-                padding: '6px 12px',
+                padding: '5px 12px',
                 backgroundColor: blazorCount > 0 ? '#faf5ff' : '#f8fafc',
-                border: '2px solid #000000',
+                border: '1.5px solid #0f172a',
                 borderRadius: '8px',
                 fontSize: '12px',
                 fontWeight: 600,
@@ -184,31 +175,31 @@ export const Navbar: React.FC<NavbarProps> = ({
                 display: 'flex',
                 alignItems: 'center',
                 gap: '6px',
-                padding: '6px 12px',
+                padding: '5px 12px',
                 backgroundColor: joinedCount > 0 ? '#f0fdf4' : '#f8fafc',
-                border: '2px solid #000000',
+                border: '1.5px solid #0f172a',
                 borderRadius: '8px',
                 fontSize: '12px',
                 fontWeight: 600,
               }}
             >
               <Sparkles size={14} color="#16a34a" />
-              <span>Joined:</span>
-              <span style={{ color: '#16a34a', fontWeight: 700 }}>{joinedCount.toLocaleString()} calibrated</span>
+              <span>Calibrated:</span>
+              <span style={{ color: '#16a34a', fontWeight: 700 }}>{joinedCount.toLocaleString()} rows</span>
             </div>
           </Tooltip>
         </div>
 
-        {/* Global Action Buttons */}
+        {/* Global Action Buttons & Corporate QS Logo */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
           {/* Sample Data Button */}
           <Tooltip content="Load pre-built realistic SMT & Blazor mining calibration datasets (24 periods, 3 pits, multi-case) with 1 click.">
             <button
               className="cg-btn cg-btn-primary"
-              style={{ padding: '8px 14px', fontSize: '13px' }}
+              style={{ padding: '7px 13px', fontSize: '12.5px' }}
               onClick={onLoadSampleData}
             >
-              <PlayCircle size={16} />
+              <PlayCircle size={15} />
               Load Sample Data
             </button>
           </Tooltip>
@@ -217,10 +208,10 @@ export const Navbar: React.FC<NavbarProps> = ({
           <Tooltip content="Open embedded PostgreSQL interactive SQL console to execute custom queries directly against 'smt_data' and 'blazor_data'.">
             <button
               className="cg-btn cg-btn-teal"
-              style={{ padding: '8px 14px', fontSize: '13px' }}
+              style={{ padding: '7px 13px', fontSize: '12.5px' }}
               onClick={onOpenSqlConsole}
             >
-              <Terminal size={16} />
+              <Terminal size={15} />
               SQL Console
             </button>
           </Tooltip>
@@ -230,11 +221,11 @@ export const Navbar: React.FC<NavbarProps> = ({
             <Tooltip content="Export joined calibration dataset with all 7 metric comparisons and deltas as CSV.">
               <button
                 className="cg-btn"
-                style={{ padding: '8px 14px', fontSize: '13px', backgroundColor: '#f8fafc' }}
+                style={{ padding: '7px 13px', fontSize: '12.5px', backgroundColor: '#f8fafc' }}
                 onClick={onExportJoinedCsv}
               >
-                <Download size={16} />
-                Export Joined CSV
+                <Download size={15} />
+                Export CSV
               </button>
             </Tooltip>
           )}
@@ -244,14 +235,31 @@ export const Navbar: React.FC<NavbarProps> = ({
             <Tooltip content="Clear all ingested datasets and reset embedded PostgreSQL tables.">
               <button
                 className="cg-btn"
-                style={{ padding: '8px 12px', fontSize: '13px', color: '#dc2626' }}
+                style={{ padding: '7px 11px', fontSize: '12.5px', color: '#dc2626' }}
                 onClick={onResetData}
               >
-                <RefreshCw size={15} />
+                <RefreshCw size={14} />
                 Reset
               </button>
             </Tooltip>
           )}
+
+          {/* Quantified Strategies Official Corporate Logo */}
+          <div
+            style={{
+              paddingLeft: '10px',
+              borderLeft: '1.5px solid #e2e8f0',
+              display: 'flex',
+              alignItems: 'center',
+            }}
+          >
+            <img
+              src={qsLogo}
+              alt="Quantified Strategies"
+              className="qs-logo-img"
+              title="Quantified Strategies Corporate Tooling"
+            />
+          </div>
         </div>
       </div>
     </header>

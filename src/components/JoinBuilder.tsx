@@ -129,17 +129,18 @@ export const JoinBuilder: React.FC<JoinBuilderProps> = ({
           <h2
             className="cg-title"
             style={{
-              fontSize: '18px',
+              fontSize: '17px',
               margin: 0,
               display: 'flex',
               alignItems: 'center',
               gap: '8px',
+              color: '#f7901e',
             }}
           >
-            <GitMerge size={20} color="#ea580c" />
+            <GitMerge size={20} color="#f7901e" />
             DATABASE JOIN & CALIBRATION CONFIGURATION
           </h2>
-          <p className="cg-subtitle" style={{ fontSize: '12px', margin: '2px 0 0 0' }}>
+          <p className="cg-subtitle" style={{ fontSize: '12px', margin: '2px 0 0 0', color: '#00a3a6' }}>
             Configure PostgreSQL relational joins between <span style={{ color: '#2563eb' }}>smt_data</span> and{' '}
             <span style={{ color: '#9333ea' }}>blazor_data</span>
           </p>
@@ -208,7 +209,7 @@ export const JoinBuilder: React.FC<JoinBuilderProps> = ({
                     fontSize: '11px',
                     textAlign: 'center',
                     justifyContent: 'center',
-                    backgroundColor: joinType === jt.id ? '#0d9488' : '#f8fafc',
+                    backgroundColor: joinType === jt.id ? '#00a3a6' : '#f8fafc',
                     color: joinType === jt.id ? '#ffffff' : '#0f172a',
                     fontWeight: joinType === jt.id ? 700 : 500,
                   }}

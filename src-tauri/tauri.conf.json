@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "Calibration Grapher \u2014 SMT vs Blazor Composite Analytics",
+        "title": "QS Calibration Grapher \u2014 Phase Analyser",
         "width": 1400,
         "height": 900,
         "resizable": true,

@@ -612,7 +612,7 @@ export const CalibrationGraphs: React.FC<CalibrationGraphsProps> = ({
                   <Tooltip key={m.id} content={m.tip}>
                     <button
                       style={{
-                        background: isSelected ? '#0d9488' : 'transparent',
+                        background: isSelected ? '#00a3a6' : 'transparent',
                         color: isSelected ? '#ffffff' : '#475569',
                         border: 'none',
                         borderRadius: '4px',
@@ -663,7 +663,7 @@ export const CalibrationGraphs: React.FC<CalibrationGraphsProps> = ({
                 }}
                 onClick={() => handleExportPdf(stat)}
               >
-                <FileText size={13} color="#ea580c" />
+                <FileText size={13} color="#f7901e" />
                 PDF
               </button>
             </Tooltip>
@@ -743,7 +743,7 @@ export const CalibrationGraphs: React.FC<CalibrationGraphsProps> = ({
               style={{
                 fontSize: '14px',
                 fontWeight: 800,
-                color: Math.abs(totalPctDiff) < 1 ? '#16a34a' : '#ea580c',
+                color: Math.abs(totalPctDiff) < 1 ? '#16a34a' : '#f7901e',
               }}
             >
               {totalPctDiff > 0 ? `+${totalPctDiff.toFixed(2)}%` : `${totalPctDiff.toFixed(2)}%`}
@@ -793,17 +793,18 @@ export const CalibrationGraphs: React.FC<CalibrationGraphsProps> = ({
           <h2
             className="cg-title"
             style={{
-              fontSize: '19px',
+              fontSize: '18px',
               margin: 0,
               display: 'flex',
               alignItems: 'center',
               gap: '8px',
+              color: '#f7901e',
             }}
           >
-            <TrendingUp size={22} color="#ea580c" />
+            <TrendingUp size={22} color="#f7901e" />
             CALIBRATION GRAPHS (7 REQUIRED METRIC SUITES)
           </h2>
-          <p className="cg-subtitle" style={{ fontSize: '12px', margin: '3px 0 0 0' }}>
+          <p className="cg-subtitle" style={{ fontSize: '12px', margin: '3px 0 0 0', color: '#00a3a6' }}>
             Visual comparison of SMT optimization output vs. Blazor composite output across joined time periods
           </p>
         </div>
@@ -830,8 +831,9 @@ export const CalibrationGraphs: React.FC<CalibrationGraphsProps> = ({
                   style={{
                     padding: '6px 12px',
                     fontSize: '12px',
-                    backgroundColor: isSelected ? '#0d9488' : '#ffffff',
+                    backgroundColor: isSelected ? '#00a3a6' : '#ffffff',
                     color: isSelected ? '#ffffff' : '#0f172a',
+                    borderColor: '#0f172a',
                   }}
                   onClick={() => {
                     setGlobalChartMode(m.id);
@@ -881,8 +883,9 @@ export const CalibrationGraphs: React.FC<CalibrationGraphsProps> = ({
             style={{
               padding: '6px 12px',
               fontSize: '12px',
-              backgroundColor: selectedMetricKey === 'ALL' ? '#ea580c' : '#f1f5f9',
+              backgroundColor: selectedMetricKey === 'ALL' ? '#f7901e' : '#f1f5f9',
               color: selectedMetricKey === 'ALL' ? '#ffffff' : '#0f172a',
+              borderColor: '#0f172a',
               whiteSpace: 'nowrap',
             }}
             onClick={() => setSelectedMetricKey('ALL')}
@@ -898,8 +901,9 @@ export const CalibrationGraphs: React.FC<CalibrationGraphsProps> = ({
               style={{
                 padding: '6px 12px',
                 fontSize: '12px',
-                backgroundColor: selectedMetricKey === m.key ? '#0d9488' : '#f1f5f9',
+                backgroundColor: selectedMetricKey === m.key ? '#00a3a6' : '#f1f5f9',
                 color: selectedMetricKey === m.key ? '#ffffff' : '#0f172a',
+                borderColor: '#0f172a',
                 whiteSpace: 'nowrap',
                 display: 'inline-flex',
                 alignItems: 'center',

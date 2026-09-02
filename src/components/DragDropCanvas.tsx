@@ -100,9 +100,9 @@ export const DragDropCanvas: React.FC<DragDropCanvasProps> = ({
             <h2
               className="cg-title"
               style={{
-                fontSize: '18px',
+                fontSize: '17px',
                 margin: 0,
-                color: '#ea580c',
+                color: '#f7901e',
                 display: 'flex',
                 alignItems: 'center',
                 gap: '8px',
@@ -114,13 +114,13 @@ export const DragDropCanvas: React.FC<DragDropCanvasProps> = ({
                   height: '12px',
                   borderRadius: '3px',
                   backgroundColor: color,
-                  border: '1.5px solid #000000',
+                  border: '1.5px solid #0f172a',
                   display: 'inline-block',
                 }}
               />
               {title}
             </h2>
-            <p className="cg-subtitle" style={{ fontSize: '12px', margin: '3px 0 0 0' }}>
+            <p className="cg-subtitle" style={{ fontSize: '12px', margin: '3px 0 0 0', color: '#00a3a6' }}>
               {subtitle}
             </p>
           </div>
@@ -306,7 +306,7 @@ export const DragDropCanvas: React.FC<DragDropCanvasProps> = ({
                   style={{
                     fontSize: '13px',
                     fontWeight: 700,
-                    color: matchedMetricsCount === 7 ? '#16a34a' : '#ea580c',
+                    color: matchedMetricsCount === 7 ? '#16a34a' : '#f7901e',
                     marginTop: '2px',
                   }}
                 >
@@ -317,7 +317,7 @@ export const DragDropCanvas: React.FC<DragDropCanvasProps> = ({
               <div
                 style={{
                   backgroundColor: '#ffffff',
-                  border: '1.5px solid #000000',
+                  border: '1.5px solid #0f172a',
                   borderRadius: '6px',
                   padding: '8px',
                   textAlign: 'center',
@@ -326,7 +326,7 @@ export const DragDropCanvas: React.FC<DragDropCanvasProps> = ({
                 <div style={{ fontSize: '10px', fontWeight: 600, color: '#64748b', textTransform: 'uppercase' }}>
                   Candidate Keys
                 </div>
-                <div style={{ fontSize: '13px', fontWeight: 700, color: '#0d9488', marginTop: '2px' }}>
+                <div style={{ fontSize: '13px', fontWeight: 700, color: '#00a3a6', marginTop: '2px' }}>
                   {dataset.detectedKeys.length} Identified
                 </div>
               </div>

@@ -125,7 +125,7 @@ ORDER BY table_name, ordinal_position;`,
         <div
           style={{
             padding: '16px 20px',
-            borderBottom: '2px solid #000000',
+            borderBottom: '1.5px solid #0f172a',
             backgroundColor: '#f1f5f9',
             display: 'flex',
             justifyContent: 'space-between',
@@ -133,12 +133,12 @@ ORDER BY table_name, ordinal_position;`,
           }}
         >
           <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-            <Terminal size={22} color="#ea580c" />
+            <Terminal size={22} color="#f7901e" />
             <div>
-              <h2 className="cg-title" style={{ fontSize: '18px', margin: 0, color: '#ea580c' }}>
+              <h2 className="cg-title" style={{ fontSize: '18px', margin: 0, color: '#f7901e' }}>
                 PostgreSQL 16 Interactive Query Console (PGlite WASM)
               </h2>
-              <div className="cg-subtitle" style={{ fontSize: '12px', margin: '2px 0 0 0' }}>
+              <div className="cg-subtitle" style={{ fontSize: '12px', margin: '2px 0 0 0', color: '#00a3a6' }}>
                 Query tables 'smt_data' and 'blazor_data' directly with authentic PostgreSQL syntax
               </div>
             </div>
@@ -216,9 +216,9 @@ ORDER BY table_name, ordinal_position;`,
                 fontFamily: 'Consolas, monospace',
                 fontSize: '13px',
                 lineHeight: 1.4,
-                backgroundColor: '#0f172a',
+                backgroundColor: '#090d16',
                 color: '#38bdf8',
-                borderColor: '#000000',
+                borderColor: '#0f172a',
                 padding: '12px',
                 borderRadius: '8px',
               }}
@@ -244,7 +244,7 @@ ORDER BY table_name, ordinal_position;`,
                 <Tooltip content="Apply this SQL query and its calibrated rows to the main Calibration Graphs & Diff Inspector.">
                   <button
                     className="cg-btn cg-btn-teal"
-                    style={{ padding: '8px 16px', fontSize: '13px', backgroundColor: '#0d9488', color: '#ffffff' }}
+                    style={{ padding: '8px 16px', fontSize: '13px', backgroundColor: '#00a3a6', color: '#ffffff' }}
                     onClick={() => {
                       onApplyToCalibration(queryResult.rows, sql);
                       onClose();
