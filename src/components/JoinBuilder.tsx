@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { GitMerge, Play, Code, Check, Layers } from 'lucide-react';
-import { ParsedDataset } from '../services/fileParser';
+import { ParsedDataset, detectAvailableCaseIds } from '../services/fileParser';
 import { Tooltip } from './Tooltip';
 import { sanitizeIdentifier, generateCalibrationSql, JoinType, JoinConfig } from '../services/db';
 
@@ -39,13 +39,17 @@ export const JoinBuilder: React.FC<JoinBuilderProps> = ({
   }, [smtDataset, blazorDataset]);
 
   // Available Cases in SMT
-  const availableCases = React.useMemo(() => {
-    if (!smtDataset) return ['270', '269'];
-    const caseCol = smtDataset.headers.find((h) => /^case(_id)?$/i.test(h));
-    if (!caseCol) return ['270', '269'];
-    const cases = Array.from(new Set(smtDataset.rows.map((r) => String(r[caseCol] || '').trim()).filter(Boolean)));
-    return cases.length > 0 ? cases : ['270', '269'];
-  }, [smtDataset]);
+  const availableCases = React.useMemo(() => detectAvailableCaseIds(smtDataset), [smtDataset]);
+
+  // A freshly-loaded SMT dataset's real case list almost never still contains whatever
+  // caseId was selected for the PREVIOUS dataset (or the '270' initial default, which is
+  // not a claim that case 270 exists in this file) — keep the selector pointed at a case
+  // that's actually present, instead of silently querying a stale/nonexistent one.
+  useEffect(() => {
+    if (availableCases.length > 0 && !availableCases.includes(caseId)) {
+      setCaseId(availableCases[0]);
+    }
+  }, [availableCases]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Set initial default keys when datasets load
   useEffect(() => {
@@ -232,7 +236,7 @@ export const JoinBuilder: React.FC<JoinBuilderProps> = ({
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
               {availableCases.map((c) => {
                 const isSelected = caseId === c;
-                const label = c === '270' ? 'Case 270 (Rows 17-31)' : c === '269' ? 'Case 269 (Rows 2-16)' : `Case ${c}`;
+                const label = `Case ${c}`;
                 return (
                   <Tooltip key={c} content={`Filter SMT schedule dataset for CASE_ID = '${c}'`}>
                     <button

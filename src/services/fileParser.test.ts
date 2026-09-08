@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { detectDatasetRole, detectColumns } from './fileParser';
+import { detectDatasetRole, detectColumns, detectAvailableCaseIds } from './fileParser';
 
 /**
  * Minimal coverage for detectDatasetRole — this drives which PostgreSQL
@@ -110,5 +110,45 @@ describe('detectColumns — multi-site "Sent to" nomenclature', () => {
     ]);
     expect(detectedMetrics.crusher_haul_wet_tonnes).toBe('Sent to Jinidi_Crusher:rom_wmt (Mwmt)');
     expect(detectedMetrics.conveyor_from_min_cmn).toBe('Sent to Jinidi_Crusher:rom_wmt (Mwmt)');
+  });
+});
+
+/**
+ * Coverage for detectAvailableCaseIds — this is the single source of truth for "which
+ * cases exist in this SMT file" shared by JoinBuilder's selector and App.tsx's
+ * auto-join-on-upload. A real SMT export is a case-series run with dozens of unrelated
+ * scenarios; blindly defaulting to a literal '270' (not derived from the file at all) can
+ * silently query a case that has nothing to do with what was just uploaded, producing a
+ * chart that looks like "nothing matches" with no indication why.
+ */
+describe('detectAvailableCaseIds', () => {
+  it('returns the real distinct CASE_ID values found in the dataset, in first-seen order', () => {
+    const dataset = {
+      fileName: 'test.csv',
+      fileSize: 100,
+      headers: ['CASE_ID', 'Period Name'],
+      rows: [
+        { CASE_ID: '315', 'Period Name': '2032' },
+        { CASE_ID: '315', 'Period Name': '2033' },
+        { CASE_ID: '303', 'Period Name': '2032' },
+      ],
+      detectedMetrics: {},
+      detectedKeys: [],
+    };
+    expect(detectAvailableCaseIds(dataset)).toEqual(['315', '303']);
+  });
+
+  it('falls back to the placeholder list only when there is no dataset or no CASE_ID column', () => {
+    expect(detectAvailableCaseIds(null)).toEqual(['270', '269']);
+    expect(
+      detectAvailableCaseIds({
+        fileName: 'test.csv',
+        fileSize: 100,
+        headers: ['period', 'value'],
+        rows: [{ period: '2032', value: '1' }],
+        detectedMetrics: {},
+        detectedKeys: [],
+      })
+    ).toEqual(['270', '269']);
   });
 });

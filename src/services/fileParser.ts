@@ -10,6 +10,22 @@ export interface ParsedDataset {
   detectedKeys: string[];
 }
 
+/**
+ * Real, distinct CASE_ID values actually present in a parsed SMT dataset — the single
+ * source of truth for "what cases exist in this file", used both by JoinBuilder's case
+ * selector and by the auto-join that fires right after upload. A SMT export can contain
+ * dozens of unrelated case scenarios (a full case series run); '270'/'269' are only a
+ * last-resort fallback for a dataset with no recognizable CASE_ID column at all, never a
+ * claim that either of those specific cases exists or is relevant.
+ */
+export function detectAvailableCaseIds(dataset: ParsedDataset | null): string[] {
+  if (!dataset) return ['270', '269'];
+  const caseCol = dataset.headers.find((h) => /^case(_id)?$/i.test(h));
+  if (!caseCol) return ['270', '269'];
+  const cases = Array.from(new Set(dataset.rows.map((r) => String(r[caseCol] || '').trim()).filter(Boolean)));
+  return cases.length > 0 ? cases : ['270', '269'];
+}
+
 export interface TargetMetricConfig {
   key: string;
   canonicalName: string;

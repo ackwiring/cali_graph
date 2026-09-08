@@ -5,7 +5,7 @@ import { DiffViewer } from './components/DiffViewer';
 import { JoinBuilder } from './components/JoinBuilder';
 import { CalibrationGraphs } from './components/CalibrationGraphs';
 import { SqlConsoleModal } from './components/SqlConsoleModal';
-import { ParsedDataset, parseFile, detectDatasetRole } from './services/fileParser';
+import { ParsedDataset, parseFile, detectDatasetRole, detectAvailableCaseIds } from './services/fileParser';
 import { getDb, ingestTable, executeSql, generateCalibrationSql, JoinType, JoinConfig } from './services/db';
 import { generateSampleDatasets } from './services/sampleData';
 
@@ -106,7 +106,13 @@ export const App: React.FC = () => {
       }
 
       if (currentSmt && currentBlazor) {
-        const newConfig = { ...joinConfig, caseId: '270' };
+        // Auto-join on upload has to pick SOME case to show immediately, but '270' is not
+        // guaranteed to exist in every SMT export (a case-series run can carry dozens of
+        // unrelated scenarios) — silently querying a case that isn't the one just uploaded
+        // produces a chart that looks like "nothing matches" with no indication why. Use
+        // the first real case actually present in this file instead.
+        const [firstAvailableCaseId] = detectAvailableCaseIds(currentSmt);
+        const newConfig = { ...joinConfig, caseId: firstAvailableCaseId };
         setJoinConfig(newConfig);
         const outcome = await runJoinQuery(currentSmt, currentBlazor, newConfig);
         setJoinNotice(outcome.ok ? null : `Could not auto-join the uploaded datasets: ${outcome.error}`);
