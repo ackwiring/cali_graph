@@ -95,4 +95,20 @@ describe('detectColumns — multi-site "Sent to" nomenclature', () => {
     const { detectedMetrics } = detectColumns(['Sent to Jinidi_Crusher:wmt (Mwmt)']);
     expect(detectedMetrics.crusher_haul_wet_tonnes).toBe('Sent to Jinidi_Crusher:wmt (Mwmt)');
   });
+
+  it('prefers the wet-tonnes pattern match over a same-stream different-unit column that appears earlier in the file', () => {
+    // Real WAIO/Jinidi exports carry a "Mass (Mt)" column alongside the "rom_wmt (Mwmt)"
+    // one for the same stream. The generic "crusher_mass" alias substring-matches inside
+    // "Sent to Jinidi_Crusher:Mass (Mt)" (normalizes to "..._crusher_mass_mt"), and since
+    // that column appears BEFORE the ":rom_wmt (Mwmt)" one in the real file, a naive
+    // single-pass scan picked the wrong (non-wet-tonnes) column. Patterns must win
+    // regardless of column order.
+    const { detectedMetrics } = detectColumns([
+      'Sent to Jinidi_Crusher:Mass (Mt)',
+      'Sent to Jinidi_Crusher:rom_wmt (Mwmt)',
+      'Sent to Jinidi_Crusher:wmt (Mwmt)',
+    ]);
+    expect(detectedMetrics.crusher_haul_wet_tonnes).toBe('Sent to Jinidi_Crusher:rom_wmt (Mwmt)');
+    expect(detectedMetrics.conveyor_from_min_cmn).toBe('Sent to Jinidi_Crusher:rom_wmt (Mwmt)');
+  });
 });

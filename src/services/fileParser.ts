@@ -205,15 +205,29 @@ export function detectColumns(headers: string[]): { detectedMetrics: Record<stri
   const detectedMetrics: Record<string, string> = {};
   const detectedKeys: string[] = [];
 
+  // Pass 1: precise regex patterns win over loose aliases REGARDLESS of column order.
+  // Real exports can carry more than one unit variant of the same stream — e.g.
+  // "Sent to Jinidi_Crusher:Mass (Mt)" alongside "...:rom_wmt (Mwmt)" — and a generic
+  // alias like "crusher_mass" substring-matches the wrong (non-wet-tonnes) one. Checking
+  // patterns across ALL headers first, before any alias is considered, means the correct
+  // ":rom_wmt"/":wmt (Mwmt)" column always wins even if the wrong-unit column appears
+  // earlier in the file.
   for (const target of TARGET_METRICS) {
+    if (!target.patterns) continue;
     for (const h of headers) {
       const norm = normalizeHeader(h);
-
-      if (target.patterns?.some((p) => p.test(norm))) {
+      if (target.patterns.some((p) => p.test(norm))) {
         detectedMetrics[target.key] = h;
         break;
       }
+    }
+  }
 
+  // Pass 2: alias substring matching, only for targets a pattern didn't already resolve.
+  for (const target of TARGET_METRICS) {
+    if (detectedMetrics[target.key]) continue;
+    for (const h of headers) {
+      const norm = normalizeHeader(h);
       for (const alias of target.aliases) {
         const normAlias = normalizeHeader(alias);
         if (norm === normAlias || norm.includes(normAlias) || normAlias.includes(norm)) {
