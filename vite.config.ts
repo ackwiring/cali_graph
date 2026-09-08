@@ -5,8 +5,10 @@ import { viteSingleFile } from 'vite-plugin-singlefile';
 export default defineConfig({
   plugins: [react(), viteSingleFile()],
   server: {
-    port: 3000,
-    open: false
+    host: '0.0.0.0',
+    port: 1973,
+    open: false,
+    allowedHosts: true
   },
   build: {
     target: 'esnext',

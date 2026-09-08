@@ -268,50 +268,110 @@ export function isBhpMinistersNorthDataset(
 }
 
 /**
- * Canonical BHP Ministers North SMT-vs-Blazor decoder query. This is the
- * SINGLE SOURCE OF TRUTH for that hardcoded join — it used to be duplicated
- * (and had already drifted) between this function's caller and the SQL
- * Console's preset template. Both now call this directly.
+ * Builds a `COALESCE(<side>.raw_data->>'<key1>', <side>.raw_data->>'<key2>', ..., '0')`
+ * expression. The dataset's own alias-detected column (from fileParser.ts's TARGET_METRICS
+ * — now pattern-matched against ANY "Sent to <Site>_<Stream>:rom_wmt (Mwmt)" site name, not
+ * just MinistersNorth) is tried first when available; the hardcoded literals are kept as a
+ * fallback chain so a dataset with no detection info (e.g. a hand-built preset with no file
+ * loaded) still resolves to the original known-good column names.
  */
-export function generateBhpDecoderSql(caseId: string, joinType: JoinType): string {
+function coalesceRawKeys(side: 's' | 'b', dataset: ParsedDataset | undefined, metricKey: string, fallbacks: string[]): string {
+  const detected = dataset?.detectedMetrics[metricKey];
+  const keys = detected ? [detected, ...fallbacks.filter((f) => f !== detected)] : fallbacks;
+  const parts = keys.map((k) => `${side}.raw_data->>'${k.replace(/'/g, "''")}'`);
+  return `COALESCE(${parts.join(', ')}, '0')`;
+}
+
+function canonicalBlazorName(metricKey: string): string {
+  return TARGET_METRICS.find((m) => m.key === metricKey)?.canonicalName || '';
+}
+
+/**
+ * Canonical BHP SMT-vs-Blazor decoder query. This is the SINGLE SOURCE OF TRUTH for that
+ * hardcoded join — it used to be duplicated (and had already drifted) between this
+ * function's caller and the SQL Console's preset template. Both now call this directly.
+ *
+ * `smtDataset`/`blazorDataset` are optional: when provided (the real ingestion path always
+ * provides them), each metric prefers whatever column the site-agnostic "Sent to
+ * <Site>_<Stream>:rom_wmt (Mwmt)" pattern actually detected in THIS file — so a Jinidi,
+ * MinistersNorth, or any other site's export decodes correctly without editing this
+ * function. Without a dataset (e.g. the SQL Console's static preset template), it falls
+ * back to the original MinistersNorth/Total literal column names.
+ */
+export function generateBhpDecoderSql(
+  caseId: string,
+  joinType: JoinType,
+  smtDataset?: ParsedDataset,
+  blazorDataset?: ParsedDataset
+): string {
+  const smtCrusher = coalesceRawKeys('s', smtDataset, 'crusher_haul_wet_tonnes', [
+    'Sent to MinistersNorth_Crusher:rom_wmt (Mwmt)',
+    'Sent to MinistersNorth_Crusher:wmt (Mwmt)',
+  ]);
+  const smtWaste = coalesceRawKeys('s', smtDataset, 'waste_haul_wet_tonnes', [
+    'Sent to MinistersNorth_Waste:rom_wmt (Mwmt)',
+    'Sent to MinistersNorth_Waste:wmt (Mwmt)',
+  ]);
+  const smtExpit = coalesceRawKeys('s', smtDataset, 'total_expit_haul_wet_tonnes', [
+    'Sent to MinistersNorth_ExPit:rom_wmt (Mwmt)',
+    'Sent to MinistersNorth_ExPit:wmt (Mwmt)',
+  ]);
+  const smtFromSp = coalesceRawKeys('s', smtDataset, 'from_stockpile_wet_tonnes', [
+    'Sent to Total_from_SP:rom_wmt (Mwmt)',
+  ]);
+  // Conveyor MIN_CMN intentionally reads the SAME SMT column as Crusher Haul — see the
+  // comment on conveyor_from_min_cmn in fileParser.ts for why that's deliberate, not a bug.
+  const smtConveyor = smtCrusher;
+  const smtToSp = coalesceRawKeys('s', smtDataset, 'to_stockpile_wet_tonnes', [
+    'Sent to Total_to_SP:rom_wmt (Mwmt)',
+  ]);
+
+  const blzCrusher = coalesceRawKeys('b', blazorDataset, 'crusher_haul_wet_tonnes', [canonicalBlazorName('crusher_haul_wet_tonnes')]);
+  const blzWaste = coalesceRawKeys('b', blazorDataset, 'waste_haul_wet_tonnes', [canonicalBlazorName('waste_haul_wet_tonnes')]);
+  const blzExpit = coalesceRawKeys('b', blazorDataset, 'total_expit_haul_wet_tonnes', [canonicalBlazorName('total_expit_haul_wet_tonnes')]);
+  const blzOre = coalesceRawKeys('b', blazorDataset, 'expit_ore_wet_tonnes', [canonicalBlazorName('expit_ore_wet_tonnes')]);
+  const blzFromSp = coalesceRawKeys('b', blazorDataset, 'from_stockpile_wet_tonnes', [canonicalBlazorName('from_stockpile_wet_tonnes')]);
+  const blzConveyor = coalesceRawKeys('b', blazorDataset, 'conveyor_from_min_cmn', [canonicalBlazorName('conveyor_from_min_cmn')]);
+  const blzToSp = coalesceRawKeys('b', blazorDataset, 'to_stockpile_wet_tonnes', [canonicalBlazorName('to_stockpile_wet_tonnes')]);
+
   return `SELECT
     CAST(b.raw_data->>'Row Labels' AS INTEGER) AS period,
     s.raw_data->>'CASE_ID' AS case_id,
 
     -- 1. Crusher Haul (Converted from Mwmt to Wet Tonnes)
-    ROUND(CAST(COALESCE(s.raw_data->>'Sent to MinistersNorth_Crusher:rom_wmt (Mwmt)', s.raw_data->>'Sent to MinistersNorth_Crusher:wmt (Mwmt)', '0') AS NUMERIC) * 1000000.0, 2) AS smt_crusher_haul_wet_tonnes,
-    ROUND(CAST(COALESCE(b.raw_data->>'Sum of Crusher_Haul_Wet_Tonnes', '0') AS NUMERIC), 2) AS blazor_crusher_haul_wet_tonnes,
-    ROUND(CAST(COALESCE(b.raw_data->>'Sum of Crusher_Haul_Wet_Tonnes', '0') AS NUMERIC) - (CAST(COALESCE(s.raw_data->>'Sent to MinistersNorth_Crusher:rom_wmt (Mwmt)', s.raw_data->>'Sent to MinistersNorth_Crusher:wmt (Mwmt)', '0') AS NUMERIC) * 1000000.0), 2) AS delta_crusher_haul_wet_tonnes,
+    ROUND(CAST(${smtCrusher} AS NUMERIC) * 1000000.0, 2) AS smt_crusher_haul_wet_tonnes,
+    ROUND(CAST(${blzCrusher} AS NUMERIC), 2) AS blazor_crusher_haul_wet_tonnes,
+    ROUND(CAST(${blzCrusher} AS NUMERIC) - (CAST(${smtCrusher} AS NUMERIC) * 1000000.0), 2) AS delta_crusher_haul_wet_tonnes,
 
     -- 2. Waste Haul (Converted from Mwmt to Wet Tonnes)
-    ROUND(CAST(COALESCE(s.raw_data->>'Sent to MinistersNorth_Waste:rom_wmt (Mwmt)', s.raw_data->>'Sent to MinistersNorth_Waste:wmt (Mwmt)', '0') AS NUMERIC) * 1000000.0, 2) AS smt_waste_haul_wet_tonnes,
-    ROUND(CAST(COALESCE(b.raw_data->>'Sum of Waste_Haul_Wet_Tonnes', '0') AS NUMERIC), 2) AS blazor_waste_haul_wet_tonnes,
-    ROUND(CAST(COALESCE(b.raw_data->>'Sum of Waste_Haul_Wet_Tonnes', '0') AS NUMERIC) - (CAST(COALESCE(s.raw_data->>'Sent to MinistersNorth_Waste:rom_wmt (Mwmt)', s.raw_data->>'Sent to MinistersNorth_Waste:wmt (Mwmt)', '0') AS NUMERIC) * 1000000.0), 2) AS delta_waste_haul_wet_tonnes,
+    ROUND(CAST(${smtWaste} AS NUMERIC) * 1000000.0, 2) AS smt_waste_haul_wet_tonnes,
+    ROUND(CAST(${blzWaste} AS NUMERIC), 2) AS blazor_waste_haul_wet_tonnes,
+    ROUND(CAST(${blzWaste} AS NUMERIC) - (CAST(${smtWaste} AS NUMERIC) * 1000000.0), 2) AS delta_waste_haul_wet_tonnes,
 
     -- 3. Total ExPit Haul (Converted from Mwmt to Wet Tonnes)
-    ROUND(CAST(COALESCE(s.raw_data->>'Sent to MinistersNorth_ExPit:rom_wmt (Mwmt)', s.raw_data->>'Sent to MinistersNorth_ExPit:wmt (Mwmt)', '0') AS NUMERIC) * 1000000.0, 2) AS smt_total_expit_haul_wet_tonnes,
-    ROUND(CAST(COALESCE(b.raw_data->>'Sum of Total_ExPit_Haul_Wet_Tonnes', '0') AS NUMERIC), 2) AS blazor_total_expit_haul_wet_tonnes,
-    ROUND(CAST(COALESCE(b.raw_data->>'Sum of Total_ExPit_Haul_Wet_Tonnes', '0') AS NUMERIC) - (CAST(COALESCE(s.raw_data->>'Sent to MinistersNorth_ExPit:rom_wmt (Mwmt)', s.raw_data->>'Sent to MinistersNorth_ExPit:wmt (Mwmt)', '0') AS NUMERIC) * 1000000.0), 2) AS delta_total_expit_haul_wet_tonnes,
+    ROUND(CAST(${smtExpit} AS NUMERIC) * 1000000.0, 2) AS smt_total_expit_haul_wet_tonnes,
+    ROUND(CAST(${blzExpit} AS NUMERIC), 2) AS blazor_total_expit_haul_wet_tonnes,
+    ROUND(CAST(${blzExpit} AS NUMERIC) - (CAST(${smtExpit} AS NUMERIC) * 1000000.0), 2) AS delta_total_expit_haul_wet_tonnes,
 
     -- 4. ExPit Ore (Wet Tonnes)
     0.00 AS smt_expit_ore_wet_tonnes,
-    ROUND(CAST(COALESCE(b.raw_data->>'Sum of ExPit_Ore_Wet_Tonnes', '0') AS NUMERIC), 2) AS blazor_expit_ore_wet_tonnes,
-    ROUND(CAST(COALESCE(b.raw_data->>'Sum of ExPit_Ore_Wet_Tonnes', '0') AS NUMERIC), 2) AS delta_expit_ore_wet_tonnes,
+    ROUND(CAST(${blzOre} AS NUMERIC), 2) AS blazor_expit_ore_wet_tonnes,
+    ROUND(CAST(${blzOre} AS NUMERIC), 2) AS delta_expit_ore_wet_tonnes,
 
     -- 5. From Stockpile (Converted from Mwmt to Wet Tonnes)
-    ROUND(CAST(COALESCE(s.raw_data->>'Sent to Total_from_SP:rom_wmt (Mwmt)', '0') AS NUMERIC) * 1000000.0, 2) AS smt_from_stockpile_wet_tonnes,
-    ROUND(CAST(COALESCE(b.raw_data->>'Sum of From_Stockpile_Wet_Tonnes', '0') AS NUMERIC), 2) AS blazor_from_stockpile_wet_tonnes,
-    ROUND(CAST(COALESCE(b.raw_data->>'Sum of From_Stockpile_Wet_Tonnes', '0') AS NUMERIC) - (CAST(COALESCE(s.raw_data->>'Sent to Total_from_SP:rom_wmt (Mwmt)', '0') AS NUMERIC) * 1000000.0), 2) AS delta_from_stockpile_wet_tonnes,
+    ROUND(CAST(${smtFromSp} AS NUMERIC) * 1000000.0, 2) AS smt_from_stockpile_wet_tonnes,
+    ROUND(CAST(${blzFromSp} AS NUMERIC), 2) AS blazor_from_stockpile_wet_tonnes,
+    ROUND(CAST(${blzFromSp} AS NUMERIC) - (CAST(${smtFromSp} AS NUMERIC) * 1000000.0), 2) AS delta_from_stockpile_wet_tonnes,
 
-    -- 6. Conveyor MIN_CMN (Mapped to MinistersNorth_Crusher per decoder)
-    ROUND(CAST(COALESCE(s.raw_data->>'Sent to MinistersNorth_Crusher:rom_wmt (Mwmt)', s.raw_data->>'Sent to MinistersNorth_Crusher:wmt (Mwmt)', '0') AS NUMERIC) * 1000000.0, 2) AS smt_conveyor_from_min_cmn,
-    ROUND(CAST(COALESCE(b.raw_data->>'Sum of Conveyor from MIN_CMN', '0') AS NUMERIC), 2) AS blazor_conveyor_from_min_cmn,
-    ROUND(CAST(COALESCE(b.raw_data->>'Sum of Conveyor from MIN_CMN', '0') AS NUMERIC) - (CAST(COALESCE(s.raw_data->>'Sent to MinistersNorth_Crusher:rom_wmt (Mwmt)', s.raw_data->>'Sent to MinistersNorth_Crusher:wmt (Mwmt)', '0') AS NUMERIC) * 1000000.0), 2) AS delta_conveyor_from_min_cmn,
+    -- 6. Conveyor MIN_CMN (Mapped to the same SMT column as Crusher Haul per decoder)
+    ROUND(CAST(${smtConveyor} AS NUMERIC) * 1000000.0, 2) AS smt_conveyor_from_min_cmn,
+    ROUND(CAST(${blzConveyor} AS NUMERIC), 2) AS blazor_conveyor_from_min_cmn,
+    ROUND(CAST(${blzConveyor} AS NUMERIC) - (CAST(${smtConveyor} AS NUMERIC) * 1000000.0), 2) AS delta_conveyor_from_min_cmn,
 
     -- 7. To Stockpile (Converted from Mwmt to Wet Tonnes)
-    ROUND(CAST(COALESCE(s.raw_data->>'Sent to Total_to_SP:rom_wmt (Mwmt)', '0') AS NUMERIC) * 1000000.0, 2) AS smt_to_stockpile_wet_tonnes,
-    ROUND(CAST(COALESCE(b.raw_data->>'Sum of To_Stockpile_Wet_Tonnes', '0') AS NUMERIC), 2) AS blazor_to_stockpile_wet_tonnes,
-    ROUND(CAST(COALESCE(b.raw_data->>'Sum of To_Stockpile_Wet_Tonnes', '0') AS NUMERIC) - (CAST(COALESCE(s.raw_data->>'Sent to Total_to_SP:rom_wmt (Mwmt)', '0') AS NUMERIC) * 1000000.0), 2) AS delta_to_stockpile_wet_tonnes
+    ROUND(CAST(${smtToSp} AS NUMERIC) * 1000000.0, 2) AS smt_to_stockpile_wet_tonnes,
+    ROUND(CAST(${blzToSp} AS NUMERIC), 2) AS blazor_to_stockpile_wet_tonnes,
+    ROUND(CAST(${blzToSp} AS NUMERIC) - (CAST(${smtToSp} AS NUMERIC) * 1000000.0), 2) AS delta_to_stockpile_wet_tonnes
 
 FROM blazor_data b
 ${joinType} JOIN smt_data s
@@ -333,9 +393,10 @@ export function generateCalibrationSql(
     return '-- Upload both SMT and Blazor datasets to generate calibration SQL';
   }
 
-  // If this is BHP Ministers North SMT vs Blasor Pivot
+  // If this is a BHP-style SMT vs Blazor pivot (Ministers North, Jinidi, or any other
+  // site in the same "Sent to <Site>_<Stream>:rom_wmt (Mwmt)" export shape)
   if (isBhpMinistersNorthDataset(smtDataset, blazorDataset)) {
-    return generateBhpDecoderSql(config.caseId || '270', config.joinType);
+    return generateBhpDecoderSql(config.caseId || '270', config.joinType, smtDataset, blazorDataset);
   }
 
   // Standard generic join fallback

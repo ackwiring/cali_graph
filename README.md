@@ -469,6 +469,18 @@ npm run build
 ```
 This produces `dist/index.html`. This single file contains all styles, scripts, and the PGlite WebAssembly engine inline. It can be opened directly in Chrome, Edge, Firefox, or Safari without running a local web server.
 
+### Portable Distribution Package (.ZIP)
+```bash
+npm run package
+# or
+npm run package:zip
+```
+This builds and packages a standalone distribution archive `CalibrationGrapher-v1.1.0-Portable.zip` containing:
+- `CalibrationGrapher.html` (Standalone single-file executable)
+- `Start-CalibrationGrapher.bat` (1-click Windows browser launcher)
+- `QUICKSTART.txt` (Offline user instructions & metric descriptions)
+- Accompanying brand logos and assets.
+
 ---
 
 ## Network & Tailscale Access

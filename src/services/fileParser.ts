@@ -15,14 +15,28 @@ export interface TargetMetricConfig {
   canonicalName: string;
   shortName: string;
   aliases: string[];
+  /**
+   * Site-agnostic "Sent to <Site>_<Stream>:rom_wmt (Mwmt)" / ":wmt (Mwmt)" matchers.
+   * Tested against the normalized header (normalizeHeader() already collapses ":" and
+   * "(" "/" etc. to "_"), so a pattern like /^sent_to_[a-z0-9_]+?_crusher(_rom)?_wmt_mwmt$/
+   * matches "Sent to MinistersNorth_Crusher:rom_wmt (Mwmt)", "Sent to Jinidi_Crusher:wmt
+   * (Mwmt)", or any other site name in that same shape — one rule per stream instead of
+   * one hardcoded alias per site.
+   */
+  patterns?: RegExp[];
   color: string;
 }
+
+// Shared by crusher_haul and conveyor_from_min_cmn — see the comment on
+// conveyor_from_min_cmn below for why they intentionally match the same SMT column.
+const SENT_TO_CRUSHER_PATTERN = /^sent_to_[a-z0-9_]+?_crusher(_rom)?_wmt_mwmt$/;
 
 export const TARGET_METRICS: TargetMetricConfig[] = [
   {
     key: 'crusher_haul_wet_tonnes',
     canonicalName: 'Sum of Crusher_Haul_Wet_Tonnes',
     shortName: 'Crusher Haul',
+    patterns: [SENT_TO_CRUSHER_PATTERN],
     aliases: [
       'crusher_haul_wet_tonnes',
       'crusher_haul',
@@ -30,9 +44,6 @@ export const TARGET_METRICS: TargetMetricConfig[] = [
       'sum of crusher_haul_wet_tonnes',
       'crusher_wet_tonnes',
       'crushertruckstonnes',
-      'sent to ministersnorth_crusher:rom_wmt (mwmt)',
-      'sent to ministersnorth_crusher:wmt (mwmt)',
-      'ministersnorth_crusher',
       'to_nops_crusher_mass_mt',
       'sent_to_nops_crusher',
       'to_nops_crusher',
@@ -46,6 +57,7 @@ export const TARGET_METRICS: TargetMetricConfig[] = [
     key: 'waste_haul_wet_tonnes',
     canonicalName: 'Sum of Waste_Haul_Wet_Tonnes',
     shortName: 'Waste Haul',
+    patterns: [/^sent_to_[a-z0-9_]+?_waste(_rom)?_wmt_mwmt$/],
     aliases: [
       'waste_haul_wet_tonnes',
       'waste_haul',
@@ -53,9 +65,6 @@ export const TARGET_METRICS: TargetMetricConfig[] = [
       'sum of waste_haul_wet_tonnes',
       'waste_wet_tonnes',
       'wastetruckstonnes',
-      'sent to ministersnorth_waste:rom_wmt (mwmt)',
-      'sent to ministersnorth_waste:wmt (mwmt)',
-      'ministersnorth_waste',
       'to_nops_waste_mass_mt',
       'sent_to_nops_waste',
       'to_nops_waste',
@@ -69,6 +78,7 @@ export const TARGET_METRICS: TargetMetricConfig[] = [
     key: 'total_expit_haul_wet_tonnes',
     canonicalName: 'Sum of Total_ExPit_Haul_Wet_Tonnes',
     shortName: 'Total ExPit Haul',
+    patterns: [/^sent_to_[a-z0-9_]+?_expit(_rom)?_wmt_mwmt$/],
     aliases: [
       'total_expit_haul_wet_tonnes',
       'total_expit_haul',
@@ -76,9 +86,6 @@ export const TARGET_METRICS: TargetMetricConfig[] = [
       'sum of total_expit_haul_wet_tonnes',
       'total_expit_tonnes',
       'expit_haul_wet_tonnes',
-      'sent to ministersnorth_expit:rom_wmt (mwmt)',
-      'sent to ministersnorth_expit:wmt (mwmt)',
-      'ministersnorth_expit',
       'total_expit_mass',
       'total_period_mass_mt',
       'total_mass'
@@ -108,6 +115,7 @@ export const TARGET_METRICS: TargetMetricConfig[] = [
     key: 'from_stockpile_wet_tonnes',
     canonicalName: 'Sum of From_Stockpile_Wet_Tonnes',
     shortName: 'From Stockpile',
+    patterns: [/^sent_to_[a-z0-9_]+?_from_sp(_rom)?_wmt_mwmt$/],
     aliases: [
       'from_stockpile_wet_tonnes',
       'from_stockpile',
@@ -115,9 +123,6 @@ export const TARGET_METRICS: TargetMetricConfig[] = [
       'sum of from_stockpile_wet_tonnes',
       'from_sp_wet_tonnes',
       'stockpile_reclaim_tonnes',
-      'sent to total_from_sp:rom_wmt (mwmt)',
-      'sent_to_total_from_sp_rom_wmt',
-      'total_from_sp',
       'from_sp'
     ],
     color: '#8b5cf6'
@@ -126,6 +131,11 @@ export const TARGET_METRICS: TargetMetricConfig[] = [
     key: 'conveyor_from_min_cmn',
     canonicalName: 'Sum of Conveyor from MIN_CMN',
     shortName: 'Conveyor MIN_CMN',
+    // Intentionally the SAME pattern as crusher_haul_wet_tonnes: on the SMT side there is
+    // only one "Sent to <Site>_Crusher..." figure, and it feeds both the Crusher Haul and
+    // the Conveyor MIN_CMN comparison (see db.ts generateBhpDecoderSql, "Mapped to
+    // <site>_Crusher per decoder"). This is deliberate business logic, not a collision bug.
+    patterns: [SENT_TO_CRUSHER_PATTERN],
     aliases: [
       'conveyor_from_min_cmn',
       'conveyor from min_cmn',
@@ -133,7 +143,6 @@ export const TARGET_METRICS: TargetMetricConfig[] = [
       'sum of conveyor from min_cmn',
       'conveyor_mincmn',
       'cmn_conveyor_tonnes',
-      'sent to ministersnorth_crusher:rom_wmt (mwmt)',
       'conveyor',
       'to_conveyor',
       'to_conveyor_from_nop_cr'
@@ -144,6 +153,7 @@ export const TARGET_METRICS: TargetMetricConfig[] = [
     key: 'to_stockpile_wet_tonnes',
     canonicalName: 'Sum of To_Stockpile_Wet_Tonnes',
     shortName: 'To Stockpile',
+    patterns: [/^sent_to_[a-z0-9_]+?_to_sp(_rom)?_wmt_mwmt$/],
     aliases: [
       'to_stockpile_wet_tonnes',
       'to_stockpile',
@@ -151,9 +161,6 @@ export const TARGET_METRICS: TargetMetricConfig[] = [
       'sum of to_stockpile_wet_tonnes',
       'to_sp_wet_tonnes',
       'stockpile_build_tonnes',
-      'sent to total_to_sp:rom_wmt (mwmt)',
-      'sent_to_total_to_sp_rom_wmt',
-      'total_to_sp',
       'to_sp'
     ],
     color: '#ec4899'
@@ -201,6 +208,12 @@ export function detectColumns(headers: string[]): { detectedMetrics: Record<stri
   for (const target of TARGET_METRICS) {
     for (const h of headers) {
       const norm = normalizeHeader(h);
+
+      if (target.patterns?.some((p) => p.test(norm))) {
+        detectedMetrics[target.key] = h;
+        break;
+      }
+
       for (const alias of target.aliases) {
         const normAlias = normalizeHeader(alias);
         if (norm === normAlias || norm.includes(normAlias) || normAlias.includes(norm)) {

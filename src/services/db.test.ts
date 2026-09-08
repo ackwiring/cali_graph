@@ -91,6 +91,24 @@ describe('generateCalibrationSql', () => {
     expect(sql).toContain('0 AS "smt_waste_haul_wet_tonnes"');
   });
 
+  it('sources the SMT column dynamically for a non-MinistersNorth site (Jinidi)', () => {
+    const smt = makeDataset({
+      headers: ['CASE_ID', 'Period Name', 'Sent to Jinidi_Crusher:rom_wmt (Mwmt)'],
+      detectedMetrics: { crusher_haul_wet_tonnes: 'Sent to Jinidi_Crusher:rom_wmt (Mwmt)' },
+    });
+    const blazor = makeDataset({
+      headers: ['Row Labels', 'Sum of Crusher_Haul_Wet_Tonnes'],
+    });
+
+    expect(isBhpMinistersNorthDataset(smt, blazor)).toBe(true);
+
+    const sql = generateCalibrationSql(smt, blazor, baseConfig);
+
+    // Reads the actually-detected Jinidi column, not the hardcoded MinistersNorth literal
+    expect(sql).toContain("s.raw_data->>'Sent to Jinidi_Crusher:rom_wmt (Mwmt)'");
+    expect(sql).toContain('smt_crusher_haul_wet_tonnes');
+  });
+
   it('joins on multiple keys when more than one key is selected', () => {
     const smt = makeDataset({ headers: ['period', 'pit'] });
     const blazor = makeDataset({ headers: ['period', 'pit'] });
