@@ -1,5 +1,5 @@
 import { PGlite } from '@electric-sql/pglite';
-import { ParsedDataset, TARGET_METRICS } from './fileParser';
+import { ParsedDataset, TARGET_METRICS, detectColumns } from './fileParser';
 
 export type JoinType = 'INNER' | 'LEFT' | 'RIGHT' | 'FULL OUTER';
 
@@ -8,6 +8,14 @@ export interface JoinConfig {
   keys: string[];
   groupBy: string;
   caseId?: string;
+  /**
+   * Which site's "Sent to <Site>_<Stream>..." SMT columns to read (e.g. "Jinidi"). A
+   * multi-pit SMT export routes material to several different sites under the identical
+   * column-naming shape; without this, generateBhpDecoderSql falls back to whichever site
+   * happens to appear first in the file's column order, which is silently wrong for any
+   * other site. See fileParser.ts's detectAvailableSentToSites().
+   */
+  siteFilter?: string;
 }
 
 export interface ColumnInfo {
@@ -292,37 +300,50 @@ function canonicalBlazorName(metricKey: string): string {
  * function's caller and the SQL Console's preset template. Both now call this directly.
  *
  * `smtDataset`/`blazorDataset` are optional: when provided (the real ingestion path always
- * provides them), each metric prefers whatever column the site-agnostic "Sent to
- * <Site>_<Stream>:rom_wmt (Mwmt)" pattern actually detected in THIS file — so a Jinidi,
- * MinistersNorth, or any other site's export decodes correctly without editing this
- * function. Without a dataset (e.g. the SQL Console's static preset template), it falls
- * back to the original MinistersNorth/Total literal column names.
+ * provides them), each metric prefers whatever column detectColumns() actually finds in
+ * THIS file — so a Jinidi, MinistersNorth, or any other site's export decodes correctly
+ * without editing this function. Without a dataset (e.g. the SQL Console's static preset
+ * template), it falls back to the original MinistersNorth/Total literal column names.
+ *
+ * `siteFilter` (e.g. "Jinidi") scopes the SMT-side "Sent to <Site>_<Stream>..." detection to
+ * ONE site. This is REQUIRED correctness for a multi-pit SMT export, which routes material
+ * to several different sites' crushers/waste/ExPit under the identical column-naming shape
+ * in the same file — without it, whichever site happens to sit first in column order wins,
+ * silently substituting a different site's figures for the one actually being compared.
+ * Detection is recomputed fresh here (never read from smtDataset.detectedMetrics, which is
+ * computed once at parse time with no site filter) so a site chosen AFTER upload takes
+ * effect immediately, with no need to re-parse the file.
  */
 export function generateBhpDecoderSql(
   caseId: string,
   joinType: JoinType,
   smtDataset?: ParsedDataset,
-  blazorDataset?: ParsedDataset
+  blazorDataset?: ParsedDataset,
+  siteFilter?: string
 ): string {
-  const smtCrusher = coalesceRawKeys('s', smtDataset, 'crusher_haul_wet_tonnes', [
+  const smtDatasetForCoalesce: ParsedDataset | undefined = smtDataset
+    ? { ...smtDataset, detectedMetrics: detectColumns(smtDataset.headers, { siteFilter }).detectedMetrics }
+    : undefined;
+
+  const smtCrusher = coalesceRawKeys('s', smtDatasetForCoalesce, 'crusher_haul_wet_tonnes', [
     'Sent to MinistersNorth_Crusher:rom_wmt (Mwmt)',
     'Sent to MinistersNorth_Crusher:wmt (Mwmt)',
   ]);
-  const smtWaste = coalesceRawKeys('s', smtDataset, 'waste_haul_wet_tonnes', [
+  const smtWaste = coalesceRawKeys('s', smtDatasetForCoalesce, 'waste_haul_wet_tonnes', [
     'Sent to MinistersNorth_Waste:rom_wmt (Mwmt)',
     'Sent to MinistersNorth_Waste:wmt (Mwmt)',
   ]);
-  const smtExpit = coalesceRawKeys('s', smtDataset, 'total_expit_haul_wet_tonnes', [
+  const smtExpit = coalesceRawKeys('s', smtDatasetForCoalesce, 'total_expit_haul_wet_tonnes', [
     'Sent to MinistersNorth_ExPit:rom_wmt (Mwmt)',
     'Sent to MinistersNorth_ExPit:wmt (Mwmt)',
   ]);
-  const smtFromSp = coalesceRawKeys('s', smtDataset, 'from_stockpile_wet_tonnes', [
+  const smtFromSp = coalesceRawKeys('s', smtDatasetForCoalesce, 'from_stockpile_wet_tonnes', [
     'Sent to Total_from_SP:rom_wmt (Mwmt)',
   ]);
   // Conveyor MIN_CMN intentionally reads the SAME SMT column as Crusher Haul — see the
   // comment on conveyor_from_min_cmn in fileParser.ts for why that's deliberate, not a bug.
   const smtConveyor = smtCrusher;
-  const smtToSp = coalesceRawKeys('s', smtDataset, 'to_stockpile_wet_tonnes', [
+  const smtToSp = coalesceRawKeys('s', smtDatasetForCoalesce, 'to_stockpile_wet_tonnes', [
     'Sent to Total_to_SP:rom_wmt (Mwmt)',
   ]);
 
@@ -396,7 +417,7 @@ export function generateCalibrationSql(
   // If this is a BHP-style SMT vs Blazor pivot (Ministers North, Jinidi, or any other
   // site in the same "Sent to <Site>_<Stream>:rom_wmt (Mwmt)" export shape)
   if (isBhpMinistersNorthDataset(smtDataset, blazorDataset)) {
-    return generateBhpDecoderSql(config.caseId || '270', config.joinType, smtDataset, blazorDataset);
+    return generateBhpDecoderSql(config.caseId || '270', config.joinType, smtDataset, blazorDataset, config.siteFilter);
   }
 
   // Standard generic join fallback

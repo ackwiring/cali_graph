@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { GitMerge, Play, Code, Check, Layers } from 'lucide-react';
-import { ParsedDataset, detectAvailableCaseIds } from '../services/fileParser';
+import { GitMerge, Play, Code, Check, Layers, MapPin } from 'lucide-react';
+import { ParsedDataset, detectAvailableCaseIds, detectAvailableSentToSites } from '../services/fileParser';
 import { Tooltip } from './Tooltip';
 import { sanitizeIdentifier, generateCalibrationSql, JoinType, JoinConfig } from '../services/db';
 
@@ -21,6 +21,7 @@ export const JoinBuilder: React.FC<JoinBuilderProps> = ({
   const [selectedKeys, setSelectedKeys] = useState<string[]>(['period']);
   const [groupByDim, setGroupByDim] = useState<string>('period');
   const [caseId, setCaseId] = useState<string>('270');
+  const [siteFilter, setSiteFilter] = useState<string>('');
   const [generatedSql, setGeneratedSql] = useState<string>('');
   const [showSqlEditor, setShowSqlEditor] = useState<boolean>(false);
   // Tracks whether the user has hand-edited the SQL textarea. While true, the
@@ -50,6 +51,24 @@ export const JoinBuilder: React.FC<JoinBuilderProps> = ({
       setCaseId(availableCases[0]);
     }
   }, [availableCases]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Distinct sites this SMT file routes material to, e.g. ['CPH', 'Jimblebar', 'Jinidi',
+  // 'Marillana', 'MinistersNorth', 'NOPS']. A real multi-pit export carries several sites
+  // under the identical "Sent to <Site>_<Stream>..." naming shape in ONE file — without
+  // picking one explicitly, the decoder silently reads whichever site's column happens to
+  // sit first, which is very unlikely to be the site actually being compared.
+  const availableSites = React.useMemo(
+    () => (smtDataset ? detectAvailableSentToSites(smtDataset.headers) : []),
+    [smtDataset]
+  );
+
+  useEffect(() => {
+    if (availableSites.length > 0 && !availableSites.includes(siteFilter)) {
+      setSiteFilter(availableSites[0]);
+    } else if (availableSites.length === 0 && siteFilter) {
+      setSiteFilter('');
+    }
+  }, [availableSites]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Set initial default keys when datasets load
   useEffect(() => {
@@ -83,10 +102,11 @@ export const JoinBuilder: React.FC<JoinBuilderProps> = ({
       keys: selectedKeys,
       groupBy: groupByDim,
       caseId,
+      siteFilter,
     });
 
     setGeneratedSql(sql);
-  }, [smtDataset, blazorDataset, joinType, selectedKeys, groupByDim, caseId, isSqlDirty]);
+  }, [smtDataset, blazorDataset, joinType, selectedKeys, groupByDim, caseId, siteFilter, isSqlDirty]);
 
   // Explicitly discard manual edits and resync SQL from the current controls
   const handleSyncSqlFromControls = () => {
@@ -96,6 +116,7 @@ export const JoinBuilder: React.FC<JoinBuilderProps> = ({
       keys: selectedKeys,
       groupBy: groupByDim,
       caseId,
+      siteFilter,
     });
     setGeneratedSql(sql);
     setIsSqlDirty(false);
@@ -118,6 +139,7 @@ export const JoinBuilder: React.FC<JoinBuilderProps> = ({
       keys: selectedKeys,
       groupBy: groupByDim,
       caseId,
+      siteFilter,
     });
   };
 
@@ -260,10 +282,44 @@ export const JoinBuilder: React.FC<JoinBuilderProps> = ({
           </div>
         )}
 
-        {/* 3. Key Dimensions */}
+        {/* 3. SMT Destination Site — required when the SMT export routes material to more
+            than one site under the identical "Sent to <Site>_<Stream>..." naming shape */}
+        {availableSites.length > 0 && (
+          <div className="cg-card" style={{ padding: '14px', backgroundColor: '#ffffff' }}>
+            <div style={{ fontSize: '12px', fontWeight: 700, color: '#0f172a', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <MapPin size={14} color="#dc2626" />
+              3. SMT DESTINATION SITE:
+            </div>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+              {availableSites.map((s) => {
+                const isSelected = siteFilter === s;
+                return (
+                  <Tooltip key={s} content={`Read "Sent to ${s}_<Stream>..." columns for Crusher/Waste/ExPit (this file also has: ${availableSites.filter((x) => x !== s).join(', ')})`}>
+                    <button
+                      className="cg-btn"
+                      style={{
+                        padding: '6px 12px',
+                        fontSize: '11px',
+                        fontWeight: isSelected ? 700 : 500,
+                        backgroundColor: isSelected ? '#dc2626' : '#f1f5f9',
+                        color: isSelected ? '#ffffff' : '#0f172a',
+                      }}
+                      onClick={() => setSiteFilter(s)}
+                    >
+                      {isSelected && <Check size={12} />}
+                      {s}
+                    </button>
+                  </Tooltip>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* 4. Key Dimensions */}
         <div className="cg-card" style={{ padding: '14px', backgroundColor: '#ffffff' }}>
           <div style={{ fontSize: '12px', fontWeight: 700, color: '#0f172a', marginBottom: '8px' }}>
-            3. JOIN KEY COLUMNS:
+            4. JOIN KEY COLUMNS:
           </div>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
             {commonKeys.length > 0 ? (
@@ -310,7 +366,7 @@ export const JoinBuilder: React.FC<JoinBuilderProps> = ({
         >
           <div>
             <div style={{ fontSize: '12px', fontWeight: 700, color: '#0f172a', marginBottom: '4px' }}>
-              3. EXECUTE CALIBRATION:
+              5. EXECUTE CALIBRATION:
             </div>
             <div style={{ fontSize: '11px', color: '#64748b', marginBottom: '10px' }}>
               Executes PostgreSQL SQL aggregation and automatically updates all 7 calibration graphs.

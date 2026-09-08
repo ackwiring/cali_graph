@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { detectDatasetRole, detectColumns, detectAvailableCaseIds } from './fileParser';
+import { detectDatasetRole, detectColumns, detectAvailableCaseIds, detectAvailableSentToSites } from './fileParser';
 
 /**
  * Minimal coverage for detectDatasetRole — this drives which PostgreSQL
@@ -110,6 +110,73 @@ describe('detectColumns — multi-site "Sent to" nomenclature', () => {
     ]);
     expect(detectedMetrics.crusher_haul_wet_tonnes).toBe('Sent to Jinidi_Crusher:rom_wmt (Mwmt)');
     expect(detectedMetrics.conveyor_from_min_cmn).toBe('Sent to Jinidi_Crusher:rom_wmt (Mwmt)');
+  });
+
+  it('picks whichever site happens to sit first in column order when no siteFilter is given — this is the real bug: a multi-pit file needs a site filter', () => {
+    // Real WAIO/Jinidi exports route material to SEVERAL sites (CPH, Jimblebar, Jinidi,
+    // Marillana, MinistersNorth, NOPS) under the identical naming shape in ONE file. Without
+    // a siteFilter, the pattern can only pick "whichever comes first" — silently reading a
+    // different site than the one actually being compared. This is not a defect in the
+    // pattern itself; it's why detectAvailableSentToSites() + siteFilter exist.
+    const { detectedMetrics } = detectColumns([
+      'Sent to CPH_Crusher:rom_wmt (Mwmt)',
+      'Sent to Jinidi_Crusher:rom_wmt (Mwmt)',
+    ]);
+    expect(detectedMetrics.crusher_haul_wet_tonnes).toBe('Sent to CPH_Crusher:rom_wmt (Mwmt)');
+  });
+
+  it('scopes detection to exactly one site when siteFilter is given, regardless of column order', () => {
+    const headers = [
+      'Sent to CPH_Crusher:rom_wmt (Mwmt)',
+      'Sent to Jinidi_Crusher:rom_wmt (Mwmt)',
+      'Sent to MinistersNorth_Crusher:rom_wmt (Mwmt)',
+    ];
+    expect(detectColumns(headers, { siteFilter: 'Jinidi' }).detectedMetrics.crusher_haul_wet_tonnes).toBe(
+      'Sent to Jinidi_Crusher:rom_wmt (Mwmt)'
+    );
+    expect(detectColumns(headers, { siteFilter: 'CPH' }).detectedMetrics.crusher_haul_wet_tonnes).toBe(
+      'Sent to CPH_Crusher:rom_wmt (Mwmt)'
+    );
+    expect(detectColumns(headers, { siteFilter: 'MinistersNorth' }).detectedMetrics.crusher_haul_wet_tonnes).toBe(
+      'Sent to MinistersNorth_Crusher:rom_wmt (Mwmt)'
+    );
+  });
+
+  it('falls back to the alias-matched bare "Total_from_SP"/"Total_to_SP" stockpile columns regardless of siteFilter, since those are not site-prefixed', () => {
+    const { detectedMetrics } = detectColumns(
+      ['Sent to Total_from_SP:rom_wmt (Mwmt)', 'Sent to Total_to_SP:rom_wmt (Mwmt)'],
+      { siteFilter: 'Jinidi' }
+    );
+    expect(detectedMetrics.from_stockpile_wet_tonnes).toBe('Sent to Total_from_SP:rom_wmt (Mwmt)');
+    expect(detectedMetrics.to_stockpile_wet_tonnes).toBe('Sent to Total_to_SP:rom_wmt (Mwmt)');
+  });
+});
+
+/**
+ * Coverage for detectAvailableSentToSites — the single source of truth for "which sites does
+ * this SMT file route material to", used by JoinBuilder's site selector and App.tsx's
+ * auto-join. Real header text taken from a genuine WAIO ECO SMT export.
+ */
+describe('detectAvailableSentToSites', () => {
+  it('extracts every distinct site name from real "Sent to <Site>_<Stream>..." headers', () => {
+    const sites = detectAvailableSentToSites([
+      'CASE_ID',
+      'Period Name',
+      'Sent to MinistersNorth_Crusher:rom_wmt (Mwmt)',
+      'Sent to NOPS_Crusher:rom_wmt (Mwmt)',
+      'Sent to CPH_Crusher:Mass (Mt)',
+      'Sent to Jimblebar_Crusher:rom_wmt (Mwmt)',
+      'Sent to Jinidi_Crusher:rom_wmt (Mwmt)',
+      'Sent to Jinidi_Waste:rom_wmt (Mwmt)',
+      'Sent to Jinidi_ExPit:rom_wmt (Mwmt)',
+      'Sent to Marillana_Crusher:rom_wmt (Mwmt)',
+      'Sent to Total_from_SP:rom_wmt (Mwmt)',
+    ]);
+    expect(sites).toEqual(['CPH', 'Jimblebar', 'Jinidi', 'Marillana', 'MinistersNorth', 'NOPS']);
+  });
+
+  it('returns an empty list for a single-site or non-"Sent to" file', () => {
+    expect(detectAvailableSentToSites(['period', 'crusher_haul_wet_tonnes'])).toEqual([]);
   });
 });
 

@@ -5,7 +5,7 @@ import { DiffViewer } from './components/DiffViewer';
 import { JoinBuilder } from './components/JoinBuilder';
 import { CalibrationGraphs } from './components/CalibrationGraphs';
 import { SqlConsoleModal } from './components/SqlConsoleModal';
-import { ParsedDataset, parseFile, detectDatasetRole, detectAvailableCaseIds } from './services/fileParser';
+import { ParsedDataset, parseFile, detectDatasetRole, detectAvailableCaseIds, detectAvailableSentToSites } from './services/fileParser';
 import { getDb, ingestTable, executeSql, generateCalibrationSql, JoinType, JoinConfig } from './services/db';
 import { generateSampleDatasets } from './services/sampleData';
 
@@ -106,13 +106,17 @@ export const App: React.FC = () => {
       }
 
       if (currentSmt && currentBlazor) {
-        // Auto-join on upload has to pick SOME case to show immediately, but '270' is not
-        // guaranteed to exist in every SMT export (a case-series run can carry dozens of
-        // unrelated scenarios) — silently querying a case that isn't the one just uploaded
-        // produces a chart that looks like "nothing matches" with no indication why. Use
-        // the first real case actually present in this file instead.
+        // Auto-join on upload has to pick SOME case (and, for a multi-pit export, SOME
+        // site) to show immediately, but neither '270' nor "whichever site is first" is
+        // guaranteed to be the one actually being compared — a case-series run can carry
+        // dozens of unrelated scenarios, and a multi-pit SMT export routes material to
+        // several different sites under the identical "Sent to <Site>_<Stream>..." naming
+        // shape. Use the first real case and site actually present in this file, and let
+        // JoinBuilder's selectors (which compute the same values independently, so they
+        // start in sync with this) make the deliberate choice from there.
         const [firstAvailableCaseId] = detectAvailableCaseIds(currentSmt);
-        const newConfig = { ...joinConfig, caseId: firstAvailableCaseId };
+        const [firstAvailableSite] = detectAvailableSentToSites(currentSmt.headers);
+        const newConfig = { ...joinConfig, caseId: firstAvailableCaseId, siteFilter: firstAvailableSite };
         setJoinConfig(newConfig);
         const outcome = await runJoinQuery(currentSmt, currentBlazor, newConfig);
         setJoinNotice(outcome.ok ? null : `Could not auto-join the uploaded datasets: ${outcome.error}`);

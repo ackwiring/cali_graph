@@ -32,27 +32,51 @@ export interface TargetMetricConfig {
   shortName: string;
   aliases: string[];
   /**
-   * Site-agnostic "Sent to <Site>_<Stream>:rom_wmt (Mwmt)" / ":wmt (Mwmt)" matchers.
-   * Tested against the normalized header (normalizeHeader() already collapses ":" and
-   * "(" "/" etc. to "_"), so a pattern like /^sent_to_[a-z0-9_]+?_crusher(_rom)?_wmt_mwmt$/
-   * matches "Sent to MinistersNorth_Crusher:rom_wmt (Mwmt)", "Sent to Jinidi_Crusher:wmt
-   * (Mwmt)", or any other site name in that same shape — one rule per stream instead of
-   * one hardcoded alias per site.
+   * The "<Stream>" token in a "Sent to <Site>_<Stream>:rom_wmt (Mwmt)" / ":wmt (Mwmt)"
+   * header (e.g. "crusher", "waste", "expit"), normalized (lowercase, matches
+   * normalizeHeader()'s output). A REAL multi-pit SMT export can carry this same shape for
+   * SEVERAL different sites at once (MinistersNorth, CPH, Jinidi, NOPS, ...) — so matching
+   * is NOT done against a fixed site name here. buildSentToPattern() below turns this into
+   * an actual RegExp, optionally scoped to one specific site via detectColumns()'s
+   * `siteFilter` option; without a siteFilter it matches ANY site (whichever appears first
+   * in column order) — correct for a genuinely single-site file, but ambiguous for a
+   * multi-site one, which is why detectAvailableSentToSites() + a site selector exist.
    */
-  patterns?: RegExp[];
+  sentToStream?: string;
   color: string;
 }
 
-// Shared by crusher_haul and conveyor_from_min_cmn — see the comment on
-// conveyor_from_min_cmn below for why they intentionally match the same SMT column.
-const SENT_TO_CRUSHER_PATTERN = /^sent_to_[a-z0-9_]+?_crusher(_rom)?_wmt_mwmt$/;
+/** Builds a "Sent to <site>_<stream>(:_)?(rom_)?wmt (Mwmt)" matcher against normalized headers. */
+function buildSentToPattern(streamKeyword: string, site?: string): RegExp {
+  // normalizeHeader() only ever produces [a-z0-9_], so a site captured from real header
+  // text is always safe to splice directly into a RegExp source with no escaping needed.
+  const siteToken = site ? normalizeHeader(site) : '[a-z0-9_]+?';
+  return new RegExp(`^sent_to_${siteToken}_${streamKeyword}(_rom)?_wmt_mwmt$`);
+}
+
+/**
+ * Real, distinct site names found in "Sent to <Site>_Crusher|Waste|ExPit..." headers —
+ * the single source of truth for "which sites does this SMT file route material to",
+ * used by JoinBuilder's site selector. Preserves the site's original casing as it appears
+ * in the file (e.g. "Jinidi", "CPH") for display and for feeding back into
+ * detectColumns()'s siteFilter.
+ */
+export function detectAvailableSentToSites(headers: string[]): string[] {
+  const sites = new Set<string>();
+  const re = /^Sent to ([A-Za-z0-9]+)_(Crusher|Waste|ExPit)\b/i;
+  for (const h of headers) {
+    const m = h.match(re);
+    if (m) sites.add(m[1]);
+  }
+  return Array.from(sites).sort();
+}
 
 export const TARGET_METRICS: TargetMetricConfig[] = [
   {
     key: 'crusher_haul_wet_tonnes',
     canonicalName: 'Sum of Crusher_Haul_Wet_Tonnes',
     shortName: 'Crusher Haul',
-    patterns: [SENT_TO_CRUSHER_PATTERN],
+    sentToStream: 'crusher',
     aliases: [
       'crusher_haul_wet_tonnes',
       'crusher_haul',
@@ -73,7 +97,7 @@ export const TARGET_METRICS: TargetMetricConfig[] = [
     key: 'waste_haul_wet_tonnes',
     canonicalName: 'Sum of Waste_Haul_Wet_Tonnes',
     shortName: 'Waste Haul',
-    patterns: [/^sent_to_[a-z0-9_]+?_waste(_rom)?_wmt_mwmt$/],
+    sentToStream: 'waste',
     aliases: [
       'waste_haul_wet_tonnes',
       'waste_haul',
@@ -94,7 +118,7 @@ export const TARGET_METRICS: TargetMetricConfig[] = [
     key: 'total_expit_haul_wet_tonnes',
     canonicalName: 'Sum of Total_ExPit_Haul_Wet_Tonnes',
     shortName: 'Total ExPit Haul',
-    patterns: [/^sent_to_[a-z0-9_]+?_expit(_rom)?_wmt_mwmt$/],
+    sentToStream: 'expit',
     aliases: [
       'total_expit_haul_wet_tonnes',
       'total_expit_haul',
@@ -131,7 +155,7 @@ export const TARGET_METRICS: TargetMetricConfig[] = [
     key: 'from_stockpile_wet_tonnes',
     canonicalName: 'Sum of From_Stockpile_Wet_Tonnes',
     shortName: 'From Stockpile',
-    patterns: [/^sent_to_[a-z0-9_]+?_from_sp(_rom)?_wmt_mwmt$/],
+    sentToStream: 'from_sp',
     aliases: [
       'from_stockpile_wet_tonnes',
       'from_stockpile',
@@ -151,7 +175,7 @@ export const TARGET_METRICS: TargetMetricConfig[] = [
     // only one "Sent to <Site>_Crusher..." figure, and it feeds both the Crusher Haul and
     // the Conveyor MIN_CMN comparison (see db.ts generateBhpDecoderSql, "Mapped to
     // <site>_Crusher per decoder"). This is deliberate business logic, not a collision bug.
-    patterns: [SENT_TO_CRUSHER_PATTERN],
+    sentToStream: 'crusher',
     aliases: [
       'conveyor_from_min_cmn',
       'conveyor from min_cmn',
@@ -169,7 +193,7 @@ export const TARGET_METRICS: TargetMetricConfig[] = [
     key: 'to_stockpile_wet_tonnes',
     canonicalName: 'Sum of To_Stockpile_Wet_Tonnes',
     shortName: 'To Stockpile',
-    patterns: [/^sent_to_[a-z0-9_]+?_to_sp(_rom)?_wmt_mwmt$/],
+    sentToStream: 'to_sp',
     aliases: [
       'to_stockpile_wet_tonnes',
       'to_stockpile',
@@ -215,9 +239,19 @@ function normalizeHeader(h: string): string {
 }
 
 /**
- * Scan headers to detect which target metrics and candidate keys are present
+ * Scan headers to detect which target metrics and candidate keys are present.
+ *
+ * `siteFilter`, when given, scopes every "Sent to <Site>_<Stream>..." pattern to that one
+ * site (e.g. "Jinidi") — required for a REAL multi-pit SMT export, which routes material to
+ * several different sites' crushers/waste/ExPit in the same file under the identical naming
+ * shape. Without it, the pattern matches whichever site happens to appear first in column
+ * order, which is correct for a single-site file but silently picks the WRONG site's figures
+ * for a multi-site one. See detectAvailableSentToSites() for enumerating the real choices.
  */
-export function detectColumns(headers: string[]): { detectedMetrics: Record<string, string>; detectedKeys: string[] } {
+export function detectColumns(
+  headers: string[],
+  options?: { siteFilter?: string }
+): { detectedMetrics: Record<string, string>; detectedKeys: string[] } {
   const detectedMetrics: Record<string, string> = {};
   const detectedKeys: string[] = [];
 
@@ -229,10 +263,11 @@ export function detectColumns(headers: string[]): { detectedMetrics: Record<stri
   // ":rom_wmt"/":wmt (Mwmt)" column always wins even if the wrong-unit column appears
   // earlier in the file.
   for (const target of TARGET_METRICS) {
-    if (!target.patterns) continue;
+    if (!target.sentToStream) continue;
+    const pattern = buildSentToPattern(target.sentToStream, options?.siteFilter);
     for (const h of headers) {
       const norm = normalizeHeader(h);
-      if (target.patterns.some((p) => p.test(norm))) {
+      if (pattern.test(norm)) {
         detectedMetrics[target.key] = h;
         break;
       }
