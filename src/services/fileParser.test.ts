@@ -88,7 +88,10 @@ describe('detectColumns — multi-site "Sent to" nomenclature', () => {
 
     expect(detectedMetrics.crusher_haul_wet_tonnes).toBe('Sent to Jinidi_Crusher:rom_wmt (Mwmt)');
     expect(detectedMetrics.waste_haul_wet_tonnes).toBe('Sent to Jinidi_Waste:rom_wmt (Mwmt)');
-    expect(detectedMetrics.conveyor_from_min_cmn).toBe('Sent to Jinidi_Crusher:rom_wmt (Mwmt)');
+    // Conveyor MIN_CMN is pinned to MinistersNorth specifically (see the dedicated test
+    // below) — it must NOT opportunistically reuse Jinidi's crusher column just because
+    // that's what crusher_haul_wet_tonnes resolved to.
+    expect(detectedMetrics.conveyor_from_min_cmn).toBeUndefined();
   });
 
   it('matches the ":wmt (Mwmt)" variant (no "rom_") as well as ":rom_wmt (Mwmt)"', () => {
@@ -109,7 +112,7 @@ describe('detectColumns — multi-site "Sent to" nomenclature', () => {
       'Sent to Jinidi_Crusher:wmt (Mwmt)',
     ]);
     expect(detectedMetrics.crusher_haul_wet_tonnes).toBe('Sent to Jinidi_Crusher:rom_wmt (Mwmt)');
-    expect(detectedMetrics.conveyor_from_min_cmn).toBe('Sent to Jinidi_Crusher:rom_wmt (Mwmt)');
+    expect(detectedMetrics.conveyor_from_min_cmn).toBeUndefined();
   });
 
   it('picks whichever site happens to sit first in column order when no siteFilter is given — this is the real bug: a multi-pit file needs a site filter', () => {
@@ -142,13 +145,51 @@ describe('detectColumns — multi-site "Sent to" nomenclature', () => {
     );
   });
 
-  it('falls back to the alias-matched bare "Total_from_SP"/"Total_to_SP" stockpile columns regardless of siteFilter, since those are not site-prefixed', () => {
+  it('matches the site-independent "Total_from_SP"/"Total_to_SP" stockpile columns regardless of the selected destination site (fixedSite: "any")', () => {
     const { detectedMetrics } = detectColumns(
       ['Sent to Total_from_SP:rom_wmt (Mwmt)', 'Sent to Total_to_SP:rom_wmt (Mwmt)'],
       { siteFilter: 'Jinidi' }
     );
     expect(detectedMetrics.from_stockpile_wet_tonnes).toBe('Sent to Total_from_SP:rom_wmt (Mwmt)');
     expect(detectedMetrics.to_stockpile_wet_tonnes).toBe('Sent to Total_to_SP:rom_wmt (Mwmt)');
+  });
+
+  it('prefers the site-independent Total_from_SP/Total_to_SP pattern match over an unrelated per-stockpile alias collision (e.g. "Mined from SP01")', () => {
+    // Real WAIO exports carry per-stockpile columns like "Mined from SP01:rom_wmt (Mwmt)"
+    // and "Sent to SP01:rom_wmt (Mwmt)" alongside the aggregate "Total_from_SP"/"Total_to_SP"
+    // ones. The generic 'from_sp'/'to_sp' aliases substring-match the per-stockpile columns
+    // too, and would win if they appear first — fixedSite: 'any' makes the precise pattern
+    // resolve in pass 1, before that loose alias is ever considered in pass 2.
+    const { detectedMetrics } = detectColumns(
+      [
+        'Mined from SP01:rom_wmt (Mwmt)',
+        'Sent to SP01:rom_wmt (Mwmt)',
+        'Sent to Total_from_SP:rom_wmt (Mwmt)',
+        'Sent to Total_to_SP:rom_wmt (Mwmt)',
+      ],
+      { siteFilter: 'Jinidi' }
+    );
+    expect(detectedMetrics.from_stockpile_wet_tonnes).toBe('Sent to Total_from_SP:rom_wmt (Mwmt)');
+    expect(detectedMetrics.to_stockpile_wet_tonnes).toBe('Sent to Total_to_SP:rom_wmt (Mwmt)');
+  });
+
+  it('pins Conveyor MIN_CMN to MinistersNorth specifically (fixedSite), never substituting another site\'s crusher figure', () => {
+    // Conveyor MIN_CMN's SMT mapping (reusing the crusher column) is a verified MinistersNorth
+    // business rule, not something confirmed to generalize — a Jinidi-focused file should NOT
+    // silently report Jinidi's crusher figure under this metric.
+    const headers = [
+      'Sent to Jinidi_Crusher:rom_wmt (Mwmt)',
+      'Sent to MinistersNorth_Crusher:rom_wmt (Mwmt)',
+    ];
+    expect(detectColumns(headers, { siteFilter: 'Jinidi' }).detectedMetrics.conveyor_from_min_cmn).toBe(
+      'Sent to MinistersNorth_Crusher:rom_wmt (Mwmt)'
+    );
+    // And when MinistersNorth isn't present in the file at all, it correctly reports nothing
+    // detected (falls through to '0' downstream) rather than fabricating a match.
+    expect(
+      detectColumns(['Sent to Jinidi_Crusher:rom_wmt (Mwmt)'], { siteFilter: 'Jinidi' }).detectedMetrics
+        .conveyor_from_min_cmn
+    ).toBeUndefined();
   });
 });
 

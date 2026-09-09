@@ -43,6 +43,23 @@ export interface TargetMetricConfig {
    * multi-site one, which is why detectAvailableSentToSites() + a site selector exist.
    */
   sentToStream?: string;
+  /**
+   * Overrides which site sentToStream's pattern is scoped to, IGNORING the caller's
+   * siteFilter entirely. Two real shapes need this:
+   *  - 'any': the SMT export tracks this stream as a single site-INDEPENDENT figure (e.g.
+   *    "Sent to Total_from_SP:rom_wmt (Mwmt)" — one stockpile total shared across every
+   *    site, not a per-site column at all). Without this override, selecting a specific
+   *    site (e.g. "Jinidi") would make the pattern require "Sent to Jinidi_from_SP...",
+   *    which doesn't exist, and detection would fall through to a much looser alias that
+   *    can match an unrelated per-stockpile column (e.g. "Mined from SP01") instead.
+   *  - a literal site name: this metric's SMT mapping is a verified business rule for ONE
+   *    specific site only, with no confirmed equivalent for any other (e.g. "Conveyor from
+   *    MIN_CMN" reads MinistersNorth's crusher figure by definition — a MinistersNorth-only
+   *    correspondence carried over from the original single-site decoder, not something
+   *    that generalizes to Jinidi's differently-named conveyor system). Omitted (the
+   *    default) respects whatever siteFilter the caller passes to detectColumns().
+   */
+  fixedSite?: 'any' | string;
   color: string;
 }
 
@@ -156,6 +173,12 @@ export const TARGET_METRICS: TargetMetricConfig[] = [
     canonicalName: 'Sum of From_Stockpile_Wet_Tonnes',
     shortName: 'From Stockpile',
     sentToStream: 'from_sp',
+    // Real exports track stockpile movement as ONE site-independent "Total_from_SP" figure,
+    // not per-site — so this must ALWAYS match any site regardless of the selected
+    // destination site, or a site selection makes the pattern require a "Sent to
+    // <Site>_from_SP..." column that doesn't exist, falling through to a much looser alias
+    // that can grab an unrelated per-stockpile column instead (e.g. "Mined from SP01").
+    fixedSite: 'any',
     aliases: [
       'from_stockpile_wet_tonnes',
       'from_stockpile',
@@ -174,8 +197,17 @@ export const TARGET_METRICS: TargetMetricConfig[] = [
     // Intentionally the SAME pattern as crusher_haul_wet_tonnes: on the SMT side there is
     // only one "Sent to <Site>_Crusher..." figure, and it feeds both the Crusher Haul and
     // the Conveyor MIN_CMN comparison (see db.ts generateBhpDecoderSql, "Mapped to
-    // <site>_Crusher per decoder"). This is deliberate business logic, not a collision bug.
+    // <site>_Crusher per decoder"). This is deliberate business logic — but it is a VERIFIED
+    // mapping for MinistersNorth specifically, not a rule that generalizes to every site.
+    // Jinidi's real conveyor system uses an entirely different naming shape ("Sent to
+    // Conveyor from JND_CR2/CR3/CRa/CRe..." — four separate lines, not one column), and its
+    // Blazor reports don't even carry a "Sum of Conveyor from MIN_CMN" column to compare
+    // against. Pinning this to MinistersNorth regardless of the selected destination site
+    // means it stays correct for MinistersNorth and honestly reports "not detected" (falls
+    // through to '0', not a fabricated non-zero figure) for every other site, until a real
+    // per-site conveyor mapping is confirmed and added.
     sentToStream: 'crusher',
+    fixedSite: 'MinistersNorth',
     aliases: [
       'conveyor_from_min_cmn',
       'conveyor from min_cmn',
@@ -194,6 +226,9 @@ export const TARGET_METRICS: TargetMetricConfig[] = [
     canonicalName: 'Sum of To_Stockpile_Wet_Tonnes',
     shortName: 'To Stockpile',
     sentToStream: 'to_sp',
+    // Same reasoning as from_stockpile_wet_tonnes above: "Total_to_SP" is a single
+    // site-independent figure, not per-site.
+    fixedSite: 'any',
     aliases: [
       'to_stockpile_wet_tonnes',
       'to_stockpile',
@@ -264,7 +299,8 @@ export function detectColumns(
   // earlier in the file.
   for (const target of TARGET_METRICS) {
     if (!target.sentToStream) continue;
-    const pattern = buildSentToPattern(target.sentToStream, options?.siteFilter);
+    const site = target.fixedSite === undefined ? options?.siteFilter : target.fixedSite === 'any' ? undefined : target.fixedSite;
+    const pattern = buildSentToPattern(target.sentToStream, site);
     for (const h of headers) {
       const norm = normalizeHeader(h);
       if (pattern.test(norm)) {
